@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { store, titleFor } from './store.js';
 import { PROVINCES, SPOT_TYPE, stats } from './china-data.js';
-import { buildScene, resolveTheme, THEME_ORDER, themeLabel, PRO_SCENES, spotSeed } from './scenes.js';
+import { buildScene, resolveTheme, THEME_ORDER, themeLabel, PRO_SCENES, spotSeed, setQuality } from './scenes.js';
 import { Roamer, isMobile } from './roam.js';
 import { analyzeToday, drawMoodCard } from './mood.js';
 import { FORTUNES, greetingFor, SPOT_MEMES, expandDesc, pickN } from './lexicon.js';
@@ -236,9 +236,21 @@ function openSpot(prov, city, spot) {
   const seed = spotSeed(spot.n);
   const cover = store.getCover(prov.n + city.n + spot.n) || store.getCover(city.n + spot.n);
   const coverEl = $('#intro-cover');
-  coverEl.innerHTML = cover
-    ? '<img src="' + cover + '" alt="">'
-    : '<div style="position:absolute;inset:0;background:' + city.cover + '"></div><span class="cover-glyph">' + spot.n.charAt(0) + '</span>';
+  if (cover) {
+    coverEl.innerHTML = '<img src="' + cover + '" alt="' + spot.n + '">';
+  } else {
+    const real = getSpotCover(spot.n, prov.n, spot.t);
+    if (real.startsWith('data:')) {
+      // 终极降级：主题渐变占位
+      coverEl.innerHTML = '<div style="position:absolute;inset:0;background:' + city.cover + '"></div><span class="cover-glyph">' + spot.n.charAt(0) + '</span>';
+    } else {
+      coverEl.innerHTML = '<img src="' + real + '" alt="' + spot.n + '">';
+    }
+  }
+  const coverImg = coverEl.querySelector('img');
+  if (coverImg) coverImg.addEventListener('error', () => {
+    coverEl.innerHTML = '<div style="position:absolute;inset:0;background:' + city.cover + '"></div><span class="cover-glyph">' + spot.n.charAt(0) + '</span>';
+  });
   $('#intro-name').textContent = spot.n;
   $('#intro-tag').textContent = prov.n + ' · ' + city.n + ' · ' + typeInfo.label + (isPro ? ' · 精游 3D' : '');
   $('#intro-desc').textContent = spot.d;
@@ -248,11 +260,12 @@ function openSpot(prov, city, spot) {
   const memes = SPOT_MEMES[spot.t] || SPOT_MEMES.park;
   const picked = pickN(memes, Math.min(3, memes.length), seed);
   $('#intro-memes').innerHTML = picked.map(m => '<div class="meme-item">「' + m + '」</div>').join('');
-  // 图集 3 张：优先 Wikimedia 真实景点图，降级 picsum
+  // 图集 3 张：优先 Wikimedia 真实景点图（静态库），缺失/地区泛图则运行时精搜升级
   const gal = $('#intro-gallery');
   gal.innerHTML = '';
   const caps = ['一隅 · 此景', '二景 · 此处', '三瞥 · 此间'];
-  const realImgs = getSpotImages(spot.n, prov.n, 3);
+  const realImgs = getSpotImages(spot.n, prov.n, 3, spot.t);
+  const galImgs = [];
   for (let i = 0; i < 3; i++) {
     const fig = document.createElement('figure');
     fig.innerHTML = '<img alt="' + caps[i] + '"><figcaption>' + caps[i] + '</figcaption>';
@@ -260,7 +273,12 @@ function openSpot(prov, city, spot) {
     const img = fig.querySelector('img');
     img.src = realImgs[i];
     img.addEventListener('error', () => { fig.style.background = city.cover; img.style.display = 'none'; });
+    galImgs.push(img);
   }
+  // 异步补搜：拿到更精准的实景图后替换（含地区泛图升级）
+  enrichSpotImages(spot.n, prov.n, spot.t, 3).then(urls => {
+    urls.slice(0, 3).forEach((u, i) => { if (galImgs[i] && u && !u.startsWith('data:')) galImgs[i].src = u; });
+  });
   // 异步拉取 Wikipedia 百科摘要（补充文字解说）
   fetchWiki(spot.n).then(w => {
     if (w.extract) {
@@ -298,6 +316,11 @@ function ensureRenderer() {
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.05;
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  // 实时阴影 + 按设备选画质档位
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  setQuality(isMobile ? 'mid' : 'high');
   camera = new THREE.PerspectiveCamera(68, 1, 0.1, 900);
   roamer = new Roamer(camera, $('#scene-canvas'));
   roamer.onLockChange = locked => {
