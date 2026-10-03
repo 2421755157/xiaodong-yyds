@@ -83,6 +83,18 @@ export function getSpotCover(spotName, provName, type) {
 }
 
 // ── 同步：图集（详情弹窗，count 张）──
+// ── 图片库统计（首页展示真实数据）──
+export function imageStats() {
+  const keys = Object.keys(SPOT_IMAGES_DB);
+  let c3 = 0, c2 = 0, c1 = 0, withExtra = 0;
+  for (const k of keys) {
+    const e = SPOT_IMAGES_DB[k];
+    if (e[1] >= 3) c3++; else if (e[1] === 2) c2++; else c1++;
+    if (Array.isArray(e[2]) && e[2].length) withExtra++;
+  }
+  return { total: keys.length, c3, c2, c1, withExtra };
+}
+
 export function getSpotImages(spotName, provName, count = 3, type) {
   const out = [];
   const e = SPOT_IMAGES_DB[spotName];

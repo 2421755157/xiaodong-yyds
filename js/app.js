@@ -6,7 +6,7 @@ import { buildScene, resolveTheme, THEME_ORDER, themeLabel, PRO_SCENES, spotSeed
 import { Roamer, isMobile } from './roam.js';
 import { analyzeToday, drawMoodCard } from './mood.js';
 import { FORTUNES, greetingFor, SPOT_MEMES, expandDesc, pickN } from './lexicon.js';
-import { getSpotImages, getSpotCover } from './spot-images.js';
+import { getSpotImages, getSpotCover, imageStats } from './spot-images.js';
 import { REGION_DESC_DB } from './region-desc-db.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
@@ -121,9 +121,28 @@ function renderHome() {
   $('#hero-greet').textContent = greetingFor(new Date().getHours());
   const st = stats();
   $('#hero-line').innerHTML = '把白天的自己寄存在门口，<br>进来走一圈。<br><span style="font-size:14px;color:var(--ink-dim);letter-spacing:1px">已收录 ' + st.provinces + ' 省 · ' + st.cities + ' 市 · ' + st.spots + ' 处风景</span>';
+  renderHomeStats(st);
   nav = { level: 'prov' };
   renderNav();
   renderTimeline();
+}
+
+// ── 首页数据条：真实图片/简介数量（简介库懒加载后就绪后补齐）──
+function renderHomeStats(st) {
+  const box = $('#hero-stats');
+  if (!box) return;
+  const im = imageStats();
+  const paint = (descCount) => {
+    box.innerHTML = [
+      ['实景照片', im.total + ' 张'],
+      ['景点专属图', im.c3 + ' 张'],
+      ['多图景点', im.withExtra + ' 处'],
+      ['真实简介', descCount ? descCount + ' 条' : '加载中…'],
+      ['覆盖省市', st.provinces + ' 省 / ' + st.cities + ' 市'],
+    ].map(([k, v]) => '<div class="stat-cell"><b>' + v + '</b><span>' + k + '</span></div>').join('');
+  };
+  paint(0);
+  ensureDescDB().then(() => paint(Object.keys(SPOT_DESC_DB).length));
 }
 
 // 面包屑 + 内容区

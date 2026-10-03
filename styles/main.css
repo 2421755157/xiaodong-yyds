@@ -558,3 +558,9 @@ input,textarea{font-family:inherit;color:var(--ink)}
 @keyframes skelmove{0%{background-position:130% 0}100%{background-position:-30% 0}}
 .intro-gallery figure.no-zoom{cursor:default}
 .intro-gallery figure.no-zoom:hover img{transform:none}
+
+/* ═══════ 首页数据条 ═══════ */
+.hero-stats{display:flex;flex-wrap:wrap;gap:26px;margin-top:18px}
+.stat-cell{display:flex;flex-direction:column;gap:4px}
+.stat-cell b{font-family:var(--serif);font-size:19px;letter-spacing:1px;color:var(--gold)}
+.stat-cell span{font-size:11px;letter-spacing:2px;color:var(--ink-dim)}
