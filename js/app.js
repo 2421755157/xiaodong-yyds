@@ -182,6 +182,7 @@ function renderNav() {
       grid.appendChild(card);
     }
   }
+  syncHash();
 }
 
 function renderTimeline() {
@@ -1085,6 +1086,50 @@ function leaveSpotSilent() {
   fpMarkers = [];
 }
 
+// ═══ 路由：hash 同步 + 记忆上次位置 ═══
+// #/江苏      → 江苏省内城市列表
+// #/江苏/无锡  → 无锡景点列表
+function syncHash() {
+  let h = '#/';
+  if (nav.level === 'city' && nav.prov) h = '#/' + nav.prov.n;
+  else if (nav.level === 'spot' && nav.prov && nav.city) h = '#/' + nav.prov.n + '/' + nav.city.n;
+  if (location.hash !== h) history.replaceState(null, '', h);
+  try {
+    localStorage.setItem('nr_last_nav', JSON.stringify({
+      level: nav.level, p: nav.prov && nav.prov.n, c: nav.city && nav.city.n,
+    }));
+  } catch (e) { /* 隐私模式忽略 */ }
+}
+function applyLocation() {
+  // 1) hash 优先（分享链接可直达）
+  const parts = (location.hash || '').replace(/^#\/?/, '').split('/').filter(Boolean);
+  if (parts.length) {
+    const p = PROVINCES.find(x => x.n === parts[0]);
+    if (p) {
+      if (parts.length === 1) { nav = { level: 'city', prov: p }; return true; }
+      const c = p.cities.find(x => x.n === parts[1]);
+      nav = c ? { level: 'spot', prov: p, city: c } : { level: 'city', prov: p };
+      return true;
+    }
+  }
+  // 2) 退回上次浏览位置
+  try {
+    const last = JSON.parse(localStorage.getItem('nr_last_nav') || 'null');
+    if (last && last.p) {
+      const p = PROVINCES.find(x => x.n === last.p);
+      if (p) {
+        const c = last.c ? p.cities.find(x => x.n === last.c) : null;
+        nav = c ? { level: 'spot', prov: p, city: c } : { level: 'city', prov: p };
+        return true;
+      }
+    }
+  } catch (e) { /* 忽略 */ }
+  return false;
+}
+window.addEventListener('hashchange', () => { if (applyLocation()) renderNav(); });
+
 bind();
+applyLocation();
+renderNav();
 if (store.data.user) { renderHome(); show('#home'); }
 else { show('#gate'); startGateParticles(); }
