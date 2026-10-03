@@ -8,6 +8,7 @@ import { analyzeToday, drawMoodCard } from './mood.js';
 import { FORTUNES, greetingFor, SPOT_MEMES, expandDesc, pickN } from './lexicon.js';
 import { getSpotImages, getSpotCover } from './spot-images.js';
 import { SPOT_DESC_DB } from './spot-desc-db.js';
+import { REGION_DESC_DB } from './region-desc-db.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
@@ -34,6 +35,17 @@ function markLoading(img) {
   const done = () => img.classList.remove('skel');
   img.addEventListener('load', done);
   img.addEventListener('error', done);
+}
+
+// ═══ 省市真实简介（维基词条静态库）═══
+function provDesc(p) { return REGION_DESC_DB['p:' + p.n] || p.desc || ''; }
+function cityDesc(p, c) { return REGION_DESC_DB['p:' + p.n + '|' + c.n] || c.desc || ''; }
+// 横幅/卡片用的短版：取首句并限长
+function tagline(t, max = 36) {
+  t = (t || '').replace(/\s+/g, '');
+  const stop = t.indexOf('。');
+  if (stop > 10 && stop < max) return t.slice(0, stop + 1);
+  return t.length > max ? t.slice(0, max) + '…' : t;
 }
 const MOOD_EMOJI = ['', '😭', '😔', '😐', '🙂', '😄'];
 const MOOD_COLOR = ['', 0x7a9ac9, 0x8fb8c9, 0xb8b8a8, 0xd3b98a, 0xf0c86a];
@@ -127,14 +139,14 @@ function renderNav() {
         '<div class="spot-cover"><div style="position:absolute;inset:0;background:' + p.cover + '"></div>' +
         '<span class="cover-glyph">' + p.c + '</span></div>' +
         '<div class="spot-body"><h4>' + p.n + '</h4><span class="tag">省会 ' + p.cap + '</span>' +
-        '<p>' + p.desc + '</p><div class="spot-meta"><span>下辖 <b>' + p.cities.length + '</b> 市</span>' +
+        '<p>' + tagline(provDesc(p), 40) + '</p><div class="spot-meta"><span>下辖 <b>' + p.cities.length + '</b> 市</span>' +
         '<span class="spot-enter">进入 →</span></div></div>';
       card.addEventListener('click', () => { nav = { level: 'city', prov: p }; renderNav(); });
       grid.appendChild(card);
     }
   } else if (nav.level === 'city') {
     // 城市网格
-    $('#hero-line').innerHTML = nav.prov.desc + '<br><span style="font-size:14px;color:var(--ink-dim)">' + nav.prov.n + ' · ' + nav.prov.cities.length + ' 市</span>';
+    $('#hero-line').innerHTML = tagline(provDesc(nav.prov), 44) + '<br><span style="font-size:14px;color:var(--ink-dim)">' + nav.prov.n + ' · ' + nav.prov.cities.length + ' 市</span>';
     for (const c of nav.prov.cities) {
       const card = document.createElement('div');
       card.className = 'spot-card';
@@ -143,14 +155,14 @@ function renderNav() {
         '<div class="spot-cover"><div style="position:absolute;inset:0;background:' + c.cover + '"></div>' +
         '<span class="cover-glyph">' + c.n.charAt(0) + '</span></div>' +
         '<div class="spot-body"><h4>' + c.n + '</h4><span class="tag">' + nav.prov.n + '</span>' +
-        '<p>' + c.desc + '</p><div class="spot-meta"><span><b>' + spotsN + '</b> 处风景</span>' +
+        '<p>' + tagline(cityDesc(nav.prov, c), 40) + '</p><div class="spot-meta"><span><b>' + spotsN + '</b> 处风景</span>' +
         '<span class="spot-enter">查看 →</span></div></div>';
       card.addEventListener('click', () => { nav = { level: 'spot', prov: nav.prov, city: c }; renderNav(); });
       grid.appendChild(card);
     }
   } else {
     // 景点列表
-    $('#hero-line').innerHTML = nav.city.desc + '<br><span style="font-size:14px;color:var(--ink-dim)">' + nav.prov.n + ' ' + nav.city.n + ' · ' + nav.city.spots.length + ' 处风景</span>';
+    $('#hero-line').innerHTML = tagline(cityDesc(nav.prov, nav.city), 44) + '<br><span style="font-size:14px;color:var(--ink-dim)">' + nav.prov.n + ' ' + nav.city.n + ' · ' + nav.city.spots.length + ' 处风景</span>';
     for (const s of nav.city.spots) {
       const typeInfo = SPOT_TYPE[s.t] || SPOT_TYPE.park;
       const isPro = PRO_SCENES[nav.city.n + '|' + s.n];
