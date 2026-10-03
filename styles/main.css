@@ -556,3 +556,5 @@ input,textarea{font-family:inherit;color:var(--ink)}
   background-size:220% 100%;animation:skelmove 1.3s linear infinite;
 }
 @keyframes skelmove{0%{background-position:130% 0}100%{background-position:-30% 0}}
+.intro-gallery figure.no-zoom{cursor:default}
+.intro-gallery figure.no-zoom:hover img{transform:none}

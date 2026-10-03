@@ -413,6 +413,7 @@ function openSpot(prov, city, spot) {
   const galImgs = [];
   for (let i = 0; i < 3; i++) {
     const fig = document.createElement('figure');
+    if (!realImgs[i] || realImgs[i].startsWith('data:')) fig.className = 'no-zoom';
     fig.innerHTML = '<img alt="' + caps[i] + '"><figcaption>' + caps[i] + '</figcaption>';
     gal.appendChild(fig);
     const img = fig.querySelector('img');
@@ -421,10 +422,13 @@ function openSpot(prov, city, spot) {
     img.addEventListener('error', () => { fig.style.background = city.cover; img.style.display = 'none'; });
     galImgs.push(img);
   }
-  // 点击图集进入灯箱大图（支持左右键切换、ESC 关闭）
+  // 点击图集进入灯箱大图（支持左右键切换、ESC 关闭）；占位图不可点
   galImgs.forEach((img, i) => {
-    img.parentElement.addEventListener('click', () => {
-      openLightbox(galImgs.map(x => x.src), i);
+    const fig = img.parentElement;
+    fig.addEventListener('click', () => {
+      if (!img.src || img.src.startsWith('data:')) return;
+      openLightbox(galImgs.filter(x => x.src && !x.src.startsWith('data:')).map(x => x.src),
+                   galImgs.filter(x => x.src && !x.src.startsWith('data:')).indexOf(img));
     });
   });
   // 异步补搜：拿到更精准的实景图后替换（含地区泛图升级）
