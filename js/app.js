@@ -7,11 +7,25 @@ import { Roamer, isMobile } from './roam.js';
 import { analyzeToday, drawMoodCard } from './mood.js';
 import { FORTUNES, greetingFor, SPOT_MEMES, expandDesc, pickN } from './lexicon.js';
 import { getSpotImages, getSpotCover } from './spot-images.js';
+import { SPOT_DESC_DB } from './spot-desc-db.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 
 const $ = s => document.querySelector(s);
+
+// ═══ 景点真实简介（维基词条首段静态库）优先，手写 d 字段作为回退 ═══
+function realDesc(spot) {
+  return SPOT_DESC_DB[spot.n] || spot.d || '';
+}
+// 卡片摘要：取首句、限长，避免长段落撑破卡片
+function shortDesc(spot, max = 44) {
+  let t = (realDesc(spot) || '').replace(/\s+/g, '');
+  const stop = t.indexOf('。');
+  if (stop > 12 && stop < max) t = t.slice(0, stop + 1);
+  else if (t.length > max) t = t.slice(0, max) + '…';
+  return t;
+}
 const MOOD_EMOJI = ['', '😭', '😔', '😐', '🙂', '😄'];
 const MOOD_COLOR = ['', 0x7a9ac9, 0x8fb8c9, 0xb8b8a8, 0xd3b98a, 0xf0c86a];
 
@@ -136,7 +150,7 @@ function renderNav() {
       card.innerHTML =
         '<div class="spot-cover"><img alt="" data-img="' + encodeURIComponent(s.n) + '"><span class="cover-glyph">' + s.n.charAt(0) + '</span></div>' +
         '<div class="spot-body"><h4>' + s.n + '</h4><span class="tag">' + typeInfo.label + (isPro ? ' · 精游' : '') + '</span>' +
-        '<p>' + s.d + '</p><div class="spot-meta"><span>' + nav.city.n + '</span>' +
+        '<p>' + shortDesc(s) + '</p><div class="spot-meta"><span>' + nav.city.n + '</span>' +
         '<span class="spot-enter">详情 →</span></div></div>';
       const img = card.querySelector('img');
       img.src = getSpotCover(s.n, nav.prov.n);
@@ -190,7 +204,7 @@ function doSearch() {
     for (const c of p.cities) {
       if (c.n.includes(q)) results.push({ type: 'city', prov: p, city: c, label: c.n + '（市）', sub: p.n + ' · ' + c.spots.length + ' 处风景' });
       for (const s of c.spots) {
-        if (s.n.includes(q) || (s.d && s.d.includes(q))) {
+        if (s.n.includes(q) || (s.d && s.d.includes(q)) || (SPOT_DESC_DB[s.n] && SPOT_DESC_DB[s.n].includes(q))) {
           results.push({ type: 'spot', prov: p, city: c, spot: s, label: s.n, sub: p.n + ' ' + c.n, tag: (SPOT_TYPE[s.t] || {}).label });
           if (results.length > 50) break;
         }
@@ -253,9 +267,9 @@ function openSpot(prov, city, spot) {
   });
   $('#intro-name').textContent = spot.n;
   $('#intro-tag').textContent = prov.n + ' · ' + city.n + ' · ' + typeInfo.label + (isPro ? ' · 精游 3D' : '');
-  $('#intro-desc').textContent = spot.d;
-  // 详细解说（程序化扩写）
-  $('#intro-detail').textContent = expandDesc(spot.n, spot.t, spot.d);
+  $('#intro-desc').textContent = realDesc(spot);
+  // 详细解说（程序化扩写 + 真实简介为底）
+  $('#intro-detail').textContent = expandDesc(spot.n, spot.t, realDesc(spot));
   // 网友热梗评价
   const memes = SPOT_MEMES[spot.t] || SPOT_MEMES.park;
   const picked = pickN(memes, Math.min(3, memes.length), seed);
@@ -279,12 +293,14 @@ function openSpot(prov, city, spot) {
   enrichSpotImages(spot.n, prov.n, spot.t, 3).then(urls => {
     urls.slice(0, 3).forEach((u, i) => { if (galImgs[i] && u && !u.startsWith('data:')) galImgs[i].src = u; });
   });
-  // 异步拉取 Wikipedia 百科摘要（补充文字解说）
-  fetchWiki(spot.n).then(w => {
-    if (w.extract) {
-      $('#intro-detail').textContent = w.extract + '\n\n' + expandDesc(spot.n, spot.t, spot.d);
-    }
-  });
+  // 异步拉取 Wikipedia 百科摘要（仅静态库缺失时补，避免重复请求）
+  if (!SPOT_DESC_DB[spot.n]) {
+    fetchWiki(spot.n).then(w => {
+      if (w.extract) {
+        $('#intro-detail').textContent = w.extract + '\n\n' + expandDesc(spot.n, spot.t, spot.d);
+      }
+    });
+  }
   // meta
   $('#intro-meta').innerHTML = [
     ['所在', prov.n + ' ' + city.n],
