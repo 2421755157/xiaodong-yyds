@@ -83,16 +83,28 @@ export function getSpotCover(spotName, provName, type) {
 }
 
 // ── 同步：图集（详情弹窗，count 张）──
+// ── 补充图组：独立文件懒加载（282KB，不进首屏）──
+let GALLERY = null;
+let galleryPromise = null;
+export function ensureGallery() {
+  if (GALLERY) return Promise.resolve(GALLERY);
+  if (!galleryPromise) {
+    galleryPromise = import('./spot-gallery-db.js')
+      .then(m => { GALLERY = m.SPOT_GALLERY_DB || {}; return GALLERY; })
+      .catch(() => { GALLERY = {}; return GALLERY; });
+  }
+  return galleryPromise;
+}
+
 // ── 图片库统计（首页展示真实数据）──
 export function imageStats() {
   const keys = Object.keys(SPOT_IMAGES_DB);
-  let c3 = 0, c2 = 0, c1 = 0, withExtra = 0;
+  let c3 = 0, c2 = 0, c1 = 0;
   for (const k of keys) {
     const e = SPOT_IMAGES_DB[k];
     if (e[1] >= 3) c3++; else if (e[1] === 2) c2++; else c1++;
-    if (Array.isArray(e[2]) && e[2].length) withExtra++;
   }
-  return { total: keys.length, c3, c2, c1, withExtra };
+  return { total: keys.length, c3, c2, c1, galleryCount: GALLERY ? Object.keys(GALLERY).length : 0 };
 }
 
 export function getSpotImages(spotName, provName, count = 3, type) {
@@ -100,8 +112,9 @@ export function getSpotImages(spotName, provName, count = 3, type) {
   const e = SPOT_IMAGES_DB[spotName];
   if (e) {
     out.push(e[0]);
-    // 第 3 字段：同景点补充图组（构建期从 Commons 抓取），让图集 3 张都是实景
-    if (Array.isArray(e[2])) for (const u of e[2]) if (u && out.indexOf(u) < 0) out.push(u);
+    // 补充图组（懒加载后才有）：让图集 3 张都是实景
+    const g = GALLERY && GALLERY[spotName];
+    if (g) for (const u of g) if (u && out.indexOf(u) < 0) out.push(u);
   }
   const c = loadCache();
   if (c[spotName]) for (const u of c[spotName]) if (out.indexOf(u) < 0) out.push(u);

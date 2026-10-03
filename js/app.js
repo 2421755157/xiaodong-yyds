@@ -6,7 +6,7 @@ import { buildScene, resolveTheme, THEME_ORDER, themeLabel, PRO_SCENES, spotSeed
 import { Roamer, isMobile } from './roam.js';
 import { analyzeToday, drawMoodCard } from './mood.js';
 import { FORTUNES, greetingFor, SPOT_MEMES, expandDesc, pickN } from './lexicon.js';
-import { getSpotImages, getSpotCover, imageStats } from './spot-images.js';
+import { getSpotImages, getSpotCover, imageStats, ensureGallery } from './spot-images.js';
 import { REGION_DESC_DB } from './region-desc-db.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
@@ -132,17 +132,20 @@ function renderHomeStats(st) {
   const box = $('#hero-stats');
   if (!box) return;
   const im = imageStats();
-  const paint = (descCount) => {
+  const paint = (descCount, extraCount) => {
     box.innerHTML = [
       ['实景照片', im.total + ' 张'],
       ['景点专属图', im.c3 + ' 张'],
-      ['多图景点', im.withExtra + ' 处'],
+      ['多图景点', extraCount ? extraCount + ' 处' : '加载中…'],
       ['真实简介', descCount ? descCount + ' 条' : '加载中…'],
       ['覆盖省市', st.provinces + ' 省 / ' + st.cities + ' 市'],
     ].map(([k, v]) => '<div class="stat-cell"><b>' + v + '</b><span>' + k + '</span></div>').join('');
   };
-  paint(0);
-  ensureDescDB().then(() => paint(Object.keys(SPOT_DESC_DB).length));
+  paint(0, 0);
+  Promise.all([ensureDescDB(), ensureGallery()]).then(() => {
+    const g = imageStats().galleryCount;
+    paint(Object.keys(SPOT_DESC_DB).length, g);
+  });
 }
 
 // 面包屑 + 内容区
@@ -412,7 +415,7 @@ function renderRelated(prov, city, spot) {
 
 // ═════════ 景点详情弹窗 ═════════
 async function openSpot(prov, city, spot) {
-  await ensureDescDB();
+  await Promise.all([ensureDescDB(), ensureGallery()]);
   const isPro = PRO_SCENES[city.n + '|' + spot.n];
   const typeInfo = SPOT_TYPE[spot.t] || SPOT_TYPE.park;
   const seed = spotSeed(spot.n);
