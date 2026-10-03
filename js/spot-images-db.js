@@ -1,7 +1,6 @@
-// ═══ 景点真实照片静态库（自动抓取自 Wikimedia Commons / Wikidata）═══
-// 生成：fetchr.py v3 恢复版重抓（Wikidata P18 优先 + 严格标题过滤）。
-// 格式：{ 景点名: [图片URL, 置信分] }
-// 置信分：3=景点专属权威图, 2=Commons/搜索精匹配, 1=地区泛图(运行时再精搜替换)
+// ═══ 景点真实照片静态库（Wikimedia Commons / 维基词条图）═══
+// 生成：improve2.py 等抓取管线。格式：{ 景点名: [图片URL, 置信分] }
+// 置信分：3=景点专属权威图, 2=Commons/词条精匹配, 1=地区泛图(运行时再精搜替换)
 export const SPOT_IMAGES_DB = {
  "什刹海": [
   "https://upload.wikimedia.org/wikipedia/commons/9/95/Shishahai.jpg",
@@ -4652,8 +4651,8 @@ export const SPOT_IMAGES_DB = {
   1
  ],
  "地震遗址纪念园": [
-  "https://thumb.wikimedia.org/wikipedia/commons/thumb/b/be/%E5%94%90%E5%B1%B1center.jpg/960px-%E5%94%90%E5%B1%B1center.jpg",
-  1
+  "https://upload.wikimedia.org/wikipedia/commons/e/ea/%E5%94%90%E5%B1%B1%E5%9C%B0%E9%9C%87%E9%81%97%E5%9D%80%E7%BA%AA%E5%BF%B5%E5%85%AC%E5%9B%AD%E4%B8%9C%E4%BE%A7%E8%A5%BF%E5%90%91%E7%BA%AA%E5%BF%B5%E5%A2%99.jpg",
+  2
  ],
  "鸽子窝": [
   "https://thumb.wikimedia.org/wikipedia/commons/thumb/1/1a/Qinhuangdao_%E7%A7%A6%E7%9A%87%E5%B2%9B.jpg/960px-Qinhuangdao_%E7%A7%A6%E7%9A%87%E5%B2%9B.jpg",
@@ -4676,8 +4675,8 @@ export const SPOT_IMAGES_DB = {
   1
  ],
  "崇礼雪场": [
-  "https://thumb.wikimedia.org/wikipedia/commons/thumb/2/2b/%E6%B8%85%E6%B2%B3%E5%B2%B8%E4%B8%8A%E6%98%AF%E6%88%91%E5%AE%B6_-_panoramio.jpg/960px-%E6%B8%85%E6%B2%B3%E5%B2%B8%E4%B8%8A%E6%98%AF%E6%88%91%E5%AE%B6_-_panoramio.jpg",
-  1
+  "https://thumb.wikimedia.org/wikipedia/commons/thumb/e/e7/Snowboard_cross_finish_area_edit.jpg/960px-Snowboard_cross_finish_area_edit.jpg",
+  2
  ],
  "草原天路": [
   "https://thumb.wikimedia.org/wikipedia/commons/thumb/2/2b/%E6%B8%85%E6%B2%B3%E5%B2%B8%E4%B8%8A%E6%98%AF%E6%88%91%E5%AE%B6_-_panoramio.jpg/960px-%E6%B8%85%E6%B2%B3%E5%B2%B8%E4%B8%8A%E6%98%AF%E6%88%91%E5%AE%B6_-_panoramio.jpg",
@@ -4768,8 +4767,8 @@ export const SPOT_IMAGES_DB = {
   1
  ],
  "固关长城": [
-  "https://thumb.wikimedia.org/wikipedia/commons/thumb/1/11/%E9%98%B3%E6%B3%89%E5%B8%82%E4%B8%AD%E5%BF%83.JPG/960px-%E9%98%B3%E6%B3%89%E5%B8%82%E4%B8%AD%E5%BF%83.JPG",
-  1
+  "https://upload.wikimedia.org/wikipedia/commons/4/46/Niangziguanlocation.jpg",
+  2
  ],
  "杀虎口": [
   "https://thumb.wikimedia.org/wikipedia/commons/thumb/0/0e/Chongfu_Temple_in_Shuozhou_2011-07.JPG/960px-Chongfu_Temple_in_Shuozhou_2011-07.JPG",
@@ -4780,7 +4779,7 @@ export const SPOT_IMAGES_DB = {
   1
  ],
  "碛口古镇": [
-  "https://thumb.wikimedia.org/wikipedia/commons/thumb/e/e9/L%C3%BCliang.jpg/960px-L%C3%BCliang.jpg",
+  "https://thumb.wikimedia.org/wikipedia/commons/thumb/1/16/Shanxi_Expwy_S60_sign_no_name.svg/960px-Shanxi_Expwy_S60_sign_no_name.svg.png",
   1
  ],
  "卦山": [
@@ -4825,7 +4824,7 @@ export const SPOT_IMAGES_DB = {
  ],
  "锡林九曲": [
   "https://thumb.wikimedia.org/wikipedia/commons/thumb/9/92/%E4%BA%8C%E8%BF%9E%E6%B5%A9%E7%89%B9_%E5%9B%BD%E9%97%A8%E6%99%AF%E5%8C%BA%E4%B9%8B%E4%BB%B0%E6%9C%9B%E5%9B%BD%E9%97%A8.jpg/960px-%E4%BA%8C%E8%BF%9E%E6%B5%A9%E7%89%B9_%E5%9B%BD%E9%97%A8%E6%99%AF%E5%8C%BA%E4%B9%8B%E4%BB%B0%E6%9C%9B%E5%9B%BD%E9%97%A8.jpg",
-  1
+  2
  ],
  "多伦湖": [
   "https://thumb.wikimedia.org/wikipedia/commons/thumb/9/92/%E4%BA%8C%E8%BF%9E%E6%B5%A9%E7%89%B9_%E5%9B%BD%E9%97%A8%E6%99%AF%E5%8C%BA%E4%B9%8B%E4%BB%B0%E6%9C%9B%E5%9B%BD%E9%97%A8.jpg/960px-%E4%BA%8C%E8%BF%9E%E6%B5%A9%E7%89%B9_%E5%9B%BD%E9%97%A8%E6%99%AF%E5%8C%BA%E4%B9%8B%E4%BB%B0%E6%9C%9B%E5%9B%BD%E9%97%A8.jpg",
@@ -4885,7 +4884,7 @@ export const SPOT_IMAGES_DB = {
  ],
  "辽河碑林": [
   "https://thumb.wikimedia.org/wikipedia/commons/thumb/7/70/%E7%9B%98%E9%94%A6%E7%BA%A2%E6%B5%B7%E6%BB%A9.JPG/960px-%E7%9B%98%E9%94%A6%E7%BA%A2%E6%B5%B7%E6%BB%A9.JPG",
-  1
+  2
  ],
  "弓长岭温泉": [
   "https://thumb.wikimedia.org/wikipedia/commons/thumb/2/28/%E8%BE%BD%E9%98%B3%E7%99%BD%E5%A1%94%E5%85%AC%E5%9B%AD09.jpg/960px-%E8%BE%BD%E9%98%B3%E7%99%BD%E5%A1%94%E5%85%AC%E5%9B%AD09.jpg",
@@ -4920,7 +4919,7 @@ export const SPOT_IMAGES_DB = {
   1
  ],
  "一汽红旗": [
-  "https://thumb.wikimedia.org/wikipedia/commons/thumb/b/b0/Xinmin_Avenue_20251101.jpg/960px-Xinmin_Avenue_20251101.jpg",
+  "https://thumb.wikimedia.org/wikipedia/commons/thumb/5/59/FAW_Group_NBD_headquarters_%2820250924144423%29.jpg/960px-FAW_Group_NBD_headquarters_%2820250924144423%29.jpg",
   1
  ],
  "雾凇岛": [
@@ -4988,12 +4987,12 @@ export const SPOT_IMAGES_DB = {
   1
  ],
  "虎林园": [
-  "https://thumb.wikimedia.org/wikipedia/commons/thumb/9/94/26935-Harbin_%2829661238117%29.jpg/960px-26935-Harbin_%2829661238117%29.jpg",
-  1
+  "https://thumb.wikimedia.org/wikipedia/commons/thumb/9/9e/Panthera_tigris_altaica_%E6%9D%B1%E5%8C%97%E8%99%8E_-_panoramio.jpg/960px-Panthera_tigris_altaica_%E6%9D%B1%E5%8C%97%E8%99%8E_-_panoramio.jpg",
+  2
  ],
  "抚远黑瞎子岛": [
-  "https://thumb.wikimedia.org/wikipedia/commons/thumb/e/e0/%E6%B0%B4%E5%8E%9F%E5%B1%B1%E5%85%AC%E5%9B%AD_3.jpg/960px-%E6%B0%B4%E5%8E%9F%E5%B1%B1%E5%85%AC%E5%9B%AD_3.jpg",
-  1
+  "https://thumb.wikimedia.org/wikipedia/commons/thumb/0/00/Bolshoy_Ussuriysky_and_Tarabarov_ZH.svg/960px-Bolshoy_Ussuriysky_and_Tarabarov_ZH.svg.png",
+  2
  ],
  "大亮子河": [
   "https://thumb.wikimedia.org/wikipedia/commons/thumb/e/e0/%E6%B0%B4%E5%8E%9F%E5%B1%B1%E5%85%AC%E5%9B%AD_3.jpg/960px-%E6%B0%B4%E5%8E%9F%E5%B1%B1%E5%85%AC%E5%9B%AD_3.jpg",
@@ -5004,8 +5003,8 @@ export const SPOT_IMAGES_DB = {
   1
  ],
  "瑷珲古城": [
-  "https://thumb.wikimedia.org/wikipedia/commons/thumb/1/14/Amur_River_and_Heihe.jpg/960px-Amur_River_and_Heihe.jpg",
-  1
+  "https://thumb.wikimedia.org/wikipedia/commons/thumb/4/49/New_Aihui_Town_Site_national_protection_stele.jpg/960px-New_Aihui_Town_Site_national_protection_stele.jpg",
+  2
  ],
  "锦河大峡谷": [
   "https://thumb.wikimedia.org/wikipedia/commons/thumb/1/14/Amur_River_and_Heihe.jpg/960px-Amur_River_and_Heihe.jpg",
@@ -5032,8 +5031,8 @@ export const SPOT_IMAGES_DB = {
   2
  ],
  "青山国家森林公园": [
-  "https://thumb.wikimedia.org/wikipedia/commons/thumb/e/ed/Civic_Square%2C_Shuangyashan_1.jpg/960px-Civic_Square%2C_Shuangyashan_1.jpg",
-  1
+  "https://thumb.wikimedia.org/wikipedia/commons/thumb/7/79/Heilongjiang_Qixingshan_National_Forest_Park_2.jpg/960px-Heilongjiang_Qixingshan_National_Forest_Park_2.jpg",
+  2
  ],
  "雁窝岛": [
   "https://thumb.wikimedia.org/wikipedia/commons/thumb/e/ed/Civic_Square%2C_Shuangyashan_1.jpg/960px-Civic_Square%2C_Shuangyashan_1.jpg",
@@ -5160,8 +5159,8 @@ export const SPOT_IMAGES_DB = {
   1
  ],
  "海上云台山": [
-  "https://thumb.wikimedia.org/wikipedia/commons/thumb/b/bc/%E8%BF%9E%E4%BA%91%E6%B8%AF%E9%87%91%E6%B5%B7%E5%9B%BD%E9%99%85%E5%91%A8%E8%BE%B9.jpg/960px-%E8%BF%9E%E4%BA%91%E6%B8%AF%E9%87%91%E6%B5%B7%E5%9B%BD%E9%99%85%E5%91%A8%E8%BE%B9.jpg",
-  1
+  "https://thumb.wikimedia.org/wikipedia/commons/thumb/1/1a/%E8%A5%BF%E8%BF%9E%E5%B2%9B%E8%BF%9C%E7%9C%BA.JPG/960px-%E8%A5%BF%E8%BF%9E%E5%B2%9B%E8%BF%9C%E7%9C%BA.JPG",
+  2
  ],
  "大丰麋鹿": [
   "https://thumb.wikimedia.org/wikipedia/commons/thumb/3/3d/%E7%9B%90%E5%9F%8E%E7%9B%90%E7%AB%8B%E6%96%B9%E7%94%B5%E8%A7%86%E5%A1%94.jpg/960px-%E7%9B%90%E5%9F%8E%E7%9B%90%E7%AB%8B%E6%96%B9%E7%94%B5%E8%A7%86%E5%A1%94.jpg",
@@ -5184,8 +5183,8 @@ export const SPOT_IMAGES_DB = {
   1
  ],
  "凤城河": [
-  "https://thumb.wikimedia.org/wikipedia/commons/thumb/2/27/View_from_Pozijie.jpg/960px-View_from_Pozijie.jpg",
-  1
+  "https://thumb.wikimedia.org/wikipedia/commons/thumb/3/3c/Mei_Lanfang_Memorial_Museum_20260610.jpg/960px-Mei_Lanfang_Memorial_Museum_20260610.jpg",
+  2
  ],
  "千垛": [
   "https://thumb.wikimedia.org/wikipedia/commons/thumb/2/27/View_from_Pozijie.jpg/960px-View_from_Pozijie.jpg",
@@ -5212,8 +5211,8 @@ export const SPOT_IMAGES_DB = {
   1
  ],
  "南孔家庙": [
-  "https://thumb.wikimedia.org/wikipedia/commons/thumb/e/e8/Quzhou_chengqiang_9499.jpg/960px-Quzhou_chengqiang_9499.jpg",
-  1
+  "https://thumb.wikimedia.org/wikipedia/commons/thumb/5/56/Kongshi_nanzong_jiamiao_9374.jpg/960px-Kongshi_nanzong_jiamiao_9374.jpg",
+  2
  ],
  "烂柯山": [
   "https://thumb.wikimedia.org/wikipedia/commons/thumb/e/e8/Quzhou_chengqiang_9499.jpg/960px-Quzhou_chengqiang_9499.jpg",
@@ -5232,8 +5231,8 @@ export const SPOT_IMAGES_DB = {
   1
  ],
  "鸠兹古镇": [
-  "https://thumb.wikimedia.org/wikipedia/commons/thumb/5/51/Wuhu_Skyline%2C_December_2019.jpg/960px-Wuhu_Skyline%2C_December_2019.jpg",
-  1
+  "https://thumb.wikimedia.org/wikipedia/commons/thumb/5/5c/Xinzhu_Service_Area.jpg/960px-Xinzhu_Service_Area.jpg",
+  2
  ],
  "垓下遗址": [
   "https://thumb.wikimedia.org/wikipedia/commons/thumb/d/d6/%E8%9A%8C%E5%9F%A0%E5%B8%82%E9%BE%99%E5%AD%90%E6%B9%96%E5%8C%BA.jpg/960px-%E8%9A%8C%E5%9F%A0%E5%B8%82%E9%BE%99%E5%AD%90%E6%B9%96%E5%8C%BA.jpg",
@@ -5316,8 +5315,8 @@ export const SPOT_IMAGES_DB = {
   1
  ],
  "蟳埔村": [
-  "https://thumb.wikimedia.org/wikipedia/commons/thumb/5/55/20230130_Old_City_of_Quanzhou_01.jpg/960px-20230130_Old_City_of_Quanzhou_01.jpg",
-  1
+  "https://thumb.wikimedia.org/wikipedia/commons/thumb/4/45/Jin_River_seen_from_Zitong_Bridge_-_north_side_-_DSCF8719.JPG/960px-Jin_River_seen_from_Zitong_Bridge_-_north_side_-_DSCF8719.JPG",
+  2
  ],
  "漳州古城": [
   "https://thumb.wikimedia.org/wikipedia/commons/thumb/7/7d/Zhangzhou_Jiangdong_Qiao_20120225-7.jpg/960px-Zhangzhou_Jiangdong_Qiao_20120225-7.jpg",
@@ -5328,8 +5327,8 @@ export const SPOT_IMAGES_DB = {
   1
  ],
  "将乐玉华洞": [
-  "https://thumb.wikimedia.org/wikipedia/commons/thumb/0/0b/201708_Sanming_Hi-Tech_New_District.jpg/960px-201708_Sanming_Hi-Tech_New_District.jpg",
-  1
+  "https://thumb.wikimedia.org/wikipedia/commons/thumb/e/e2/%E9%B8%A1%E5%86%A0%E7%9F%B3%EF%BC%8D%EF%BC%8D%E7%8E%89%E5%8D%8E%E6%B4%9E%E6%B4%9E%E6%A0%87_-_panoramio.jpg/960px-%E9%B8%A1%E5%86%A0%E7%9F%B3%EF%BC%8D%EF%BC%8D%E7%8E%89%E5%8D%8E%E6%B4%9E%E6%B4%9E%E6%A0%87_-_panoramio.jpg",
+  2
  ],
  "下梅": [
   "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/a1/Eglise_Mercy_Bas.JPG/960px-Eglise_Mercy_Bas.JPG",
@@ -5341,7 +5340,7 @@ export const SPOT_IMAGES_DB = {
  ],
  "鄱阳湖湿地": [
   "https://thumb.wikimedia.org/wikipedia/commons/thumb/c/ce/Shangrao_Xinjiang_Shuyuan_2017.12.24_12-21-28.jpg/960px-Shangrao_Xinjiang_Shuyuan_2017.12.24_12-21-28.jpg",
-  1
+  2
  ],
  "温汤镇": [
   "https://upload.wikimedia.org/wikipedia/commons/9/92/%E5%9C%A8%E8%A2%81%E5%B1%B1%E5%85%AC%E5%9B%AD%E7%9C%8B%E5%AE%9C%E6%98%A5_-_panoramio.jpg",
@@ -5352,8 +5351,8 @@ export const SPOT_IMAGES_DB = {
   1
  ],
  "百丈寺": [
-  "https://upload.wikimedia.org/wikipedia/commons/9/92/%E5%9C%A8%E8%A2%81%E5%B1%B1%E5%85%AC%E5%9B%AD%E7%9C%8B%E5%AE%9C%E6%98%A5_-_panoramio.jpg",
-  1
+  "https://thumb.wikimedia.org/wikipedia/commons/thumb/e/e9/Thi%E1%BB%81n_S%C6%B0_B%C3%A1ch_Tr%C6%B0%E1%BB%A3ng_Ho%C3%A0ng_H%E1%BA%A3i.jpg/960px-Thi%E1%BB%81n_S%C6%B0_B%C3%A1ch_Tr%C6%B0%E1%BB%A3ng_Ho%C3%A0ng_H%E1%BA%A3i.jpg",
+  2
  ],
  "孽龙洞": [
   "https://thumb.wikimedia.org/wikipedia/commons/thumb/5/52/Pingxiang%2C_JX%2C_PRC.jpg/960px-Pingxiang%2C_JX%2C_PRC.jpg",
@@ -5368,24 +5367,24 @@ export const SPOT_IMAGES_DB = {
   1
  ],
  "渼陂古村": [
-  "https://thumb.wikimedia.org/wikipedia/commons/thumb/1/16/Ji%27ancityhall.jpg/960px-Ji%27ancityhall.jpg",
-  1
+  "https://thumb.wikimedia.org/wikipedia/commons/thumb/0/09/Ji%27an_Meibei_2018.05.15_12-41-00.jpg/960px-Ji%27an_Meibei_2018.05.15_12-41-00.jpg",
+  2
  ],
  "羊狮慕": [
   "https://thumb.wikimedia.org/wikipedia/commons/thumb/1/16/Ji%27ancityhall.jpg/960px-Ji%27ancityhall.jpg",
   1
  ],
  "王安石纪念馆": [
-  "https://thumb.wikimedia.org/wikipedia/commons/thumb/9/9a/Vanguard_20160201_165207.jpg/960px-Vanguard_20160201_165207.jpg",
-  1
+  "https://thumb.wikimedia.org/wikipedia/commons/thumb/c/c8/%E6%AD%B7%E4%BB%A3%E8%81%96%E8%B3%A2%E5%90%8D%E4%BA%BA%E5%83%8F-29-%E5%AE%8B%E4%B8%9E%E7%9B%B8%E7%8E%8B%E8%8D%86%E5%85%AC%E5%AE%89%E7%9F%B3.jpg/960px-%E6%AD%B7%E4%BB%A3%E8%81%96%E8%B3%A2%E5%90%8D%E4%BA%BA%E5%83%8F-29-%E5%AE%8B%E4%B8%9E%E7%9B%B8%E7%8E%8B%E8%8D%86%E5%85%AC%E5%AE%89%E7%9F%B3.jpg",
+  2
  ],
  "流坑古村": [
   "https://thumb.wikimedia.org/wikipedia/commons/thumb/9/9a/Vanguard_20160201_165207.jpg/960px-Vanguard_20160201_165207.jpg",
   1
  ],
  "麻姑山": [
-  "https://thumb.wikimedia.org/wikipedia/commons/thumb/9/9a/Vanguard_20160201_165207.jpg/960px-Vanguard_20160201_165207.jpg",
-  1
+  "https://thumb.wikimedia.org/wikipedia/commons/thumb/e/ea/%E5%AE%8B%E6%8B%93_%E9%A2%9C%E7%9C%9F%E5%8D%BF%E5%A4%A7%E5%AD%97%E9%BA%BB%E5%A7%91%E4%BB%99%E5%9D%9B%E8%AE%B0_1.jpg/960px-%E5%AE%8B%E6%8B%93_%E9%A2%9C%E7%9C%9F%E5%8D%BF%E5%A4%A7%E5%AD%97%E9%BA%BB%E5%A7%91%E4%BB%99%E5%9D%9B%E8%AE%B0_1.jpg",
+  2
  ],
  "养马岛": [
   "https://thumb.wikimedia.org/wikipedia/commons/thumb/7/75/Yantai2017.jpg/960px-Yantai2017.jpg",
@@ -5404,8 +5403,8 @@ export const SPOT_IMAGES_DB = {
   1
  ],
  "仰天山": [
-  "https://thumb.wikimedia.org/wikipedia/commons/thumb/b/b3/%E4%B8%96%E7%95%8C%E9%A3%8E%E7%AD%9D%E9%83%BD%E7%BA%AA%E5%BF%B5%E5%B9%BF%E5%9C%BA_01.jpg/960px-%E4%B8%96%E7%95%8C%E9%A3%8E%E7%AD%9D%E9%83%BD%E7%BA%AA%E5%BF%B5%E5%B9%BF%E5%9C%BA_01.jpg",
-  1
+  "https://thumb.wikimedia.org/wikipedia/commons/thumb/b/b4/Facade%2C_Qingzhou_Museum_20260504.jpg/960px-Facade%2C_Qingzhou_Museum_20260504.jpg",
+  2
  ],
  "萤火湖": [
   "https://thumb.wikimedia.org/wikipedia/commons/thumb/1/18/Confucius_Temple_of_Linyi.jpg/960px-Confucius_Temple_of_Linyi.jpg",
@@ -5416,8 +5415,8 @@ export const SPOT_IMAGES_DB = {
   1
  ],
  "聊斋城": [
-  "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/ab/Zibo_montage.jpg/960px-Zibo_montage.jpg",
-  1
+  "https://upload.wikimedia.org/wikipedia/commons/a/a9/Pu_Songling.jpg",
+  2
  ],
  "原山": [
   "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/ab/Zibo_montage.jpg/960px-Zibo_montage.jpg",
@@ -5488,7 +5487,7 @@ export const SPOT_IMAGES_DB = {
   1
  ],
  "金山": [
-  "https://thumb.wikimedia.org/wikipedia/commons/thumb/6/67/The_crossroads_in_Heze%2CShandong_province.jpg/960px-The_crossroads_in_Heze%2CShandong_province.jpg",
+  "https://thumb.wikimedia.org/wikipedia/commons/thumb/3/36/%E6%B1%95%E5%A4%B4%E9%87%91%E4%B8%AD1.jpg/960px-%E6%B1%95%E5%A4%B4%E9%87%91%E4%B8%AD1.jpg",
   1
  ],
  "熊耳山": [
@@ -5500,8 +5499,8 @@ export const SPOT_IMAGES_DB = {
   1
  ],
  "乌来": [
-  "https://thumb.wikimedia.org/wikipedia/commons/thumb/c/cc/Xinban_Special_District_20241203_%2854182542495%29.jpg/960px-Xinban_Special_District_20241203_%2854182542495%29.jpg",
-  1
+  "https://thumb.wikimedia.org/wikipedia/commons/thumb/d/d9/Bulbophyllum_macraei_Frutigen_1.jpg/960px-Bulbophyllum_macraei_Frutigen_1.jpg",
+  2
  ],
  "宫原眼科": [
   "https://thumb.wikimedia.org/wikipedia/commons/thumb/c/c6/Taiwan_Boulevard.jpg/960px-Taiwan_Boulevard.jpg",
@@ -5512,12 +5511,12 @@ export const SPOT_IMAGES_DB = {
   1
  ],
  "花园夜市": [
-  "https://thumb.wikimedia.org/wikipedia/commons/thumb/6/6e/%E5%AE%89%E5%B9%B3%E5%8F%A4%E5%A0%A1%E4%B9%8B%E7%BE%8E.jpg/960px-%E5%AE%89%E5%B9%B3%E5%8F%A4%E5%A0%A1%E4%B9%8B%E7%BE%8E.jpg",
-  1
+  "https://thumb.wikimedia.org/wikipedia/commons/thumb/5/5e/RAC_RAC-700-ELCB-3000_%E5%A4%A7%E5%8F%B0%E5%8D%97%E5%85%AC%E8%BB%8A.jpg/960px-RAC_RAC-700-ELCB-3000_%E5%A4%A7%E5%8F%B0%E5%8D%97%E5%85%AC%E8%BB%8A.jpg",
+  2
  ],
  "太鲁阁": [
-  "https://upload.wikimedia.org/wikipedia/commons/2/2c/108-10-hualien02.jpg",
-  1
+  "https://thumb.wikimedia.org/wikipedia/commons/thumb/2/29/TRA_TEMU1011%2C_TEMU1012_in_Qidu%2C_Keelung_2022-11-18.jpg/960px-TRA_TEMU1011%2C_TEMU1012_in_Qidu%2C_Keelung_2022-11-18.jpg",
+  2
  ],
  "清水断崖": [
   "https://thumb.wikimedia.org/wikipedia/commons/thumb/5/56/%E6%B8%85%E6%B0%B4%E6%96%AD%E5%B4%96_-_Chingshui_Cliff_-_2012.02_-_panoramio.jpg/960px-%E6%B8%85%E6%B0%B4%E6%96%AD%E5%B4%96_-_Chingshui_Cliff_-_2012.02_-_panoramio.jpg",
@@ -5556,8 +5555,8 @@ export const SPOT_IMAGES_DB = {
   1
  ],
  "中国文字博物馆": [
-  "https://thumb.wikimedia.org/wikipedia/commons/thumb/e/ef/The_Songshan_Buddhist_Academy_Lied_in_Mount_Song.jpg/960px-The_Songshan_Buddhist_Academy_Lied_in_Mount_Song.jpg",
-  1
+  "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/a1/20260403_National_Museum_of_Chinese_Writing_02.jpg/960px-20260403_National_Museum_of_Chinese_Writing_02.jpg",
+  2
  ],
  "陈家沟": [
   "https://thumb.wikimedia.org/wikipedia/commons/thumb/4/42/2020%E5%B9%B412%E6%9C%8820%E6%97%A5_%E6%8E%A2%E8%AE%BF%E5%A4%AA%E6%9E%81%E6%8B%B3%E5%8F%91%E6%BA%90%E5%9C%B0%E9%99%88%E5%AE%B6%E6%B2%9F%EF%BC%9A%E4%B9%A0%E5%A4%AA%E6%9E%81%E8%80%85%E2%80%9C%E4%B8%8A%E8%87%B3%E5%93%BC%E5%93%BC%E4%B8%8B%E8%87%B3%E8%83%BD%E8%83%BD%E2%80%9D.webm/960px--2020%E5%B9%B412%E6%9C%8820%E6%97%A5_%E6%8E%A2%E8%AE%BF%E5%A4%AA%E6%9E%81%E6%8B%B3%E5%8F%91%E6%BA%90%E5%9C%B0%E9%99%88%E5%AE%B6%E6%B2%9F%EF%BC%9A%E4%B9%A0%E5%A4%AA%E6%9E%81%E8%80%85%E2%80%9C%E4%B8%8A%E8%87%B3%E5%93%BC%E5%93%BC%E4%B8%8B%E8%87%B3%E8%83%BD%E8%83%BD%E2%80%9D.webm.jpg",
@@ -5592,8 +5591,8 @@ export const SPOT_IMAGES_DB = {
   2
  ],
  "潞王陵": [
-  "https://thumb.wikimedia.org/wikipedia/commons/thumb/8/8a/20230108_Weihe_Park.jpg/960px-20230108_Weihe_Park.jpg",
-  1
+  "https://thumb.wikimedia.org/wikipedia/commons/thumb/3/3a/20240803_Mausoleum_of_the_Prince_Jian_of_Lu_03.jpg/960px-20240803_Mausoleum_of_the_Prince_Jian_of_Lu_03.jpg",
+  2
  ],
  "宝天曼": [
   "https://thumb.wikimedia.org/wikipedia/commons/thumb/9/9b/%E5%8D%97%E9%98%B3%E7%9F%A5%E5%BA%9C%E8%A1%99%E9%97%A8_2025-06-02_02.jpg/960px-%E5%8D%97%E9%98%B3%E7%9F%A5%E5%BA%9C%E8%A1%99%E9%97%A8_2025-06-02_02.jpg",
@@ -5632,8 +5631,8 @@ export const SPOT_IMAGES_DB = {
   1
  ],
  "鄢陵花木": [
-  "https://thumb.wikimedia.org/wikipedia/commons/thumb/8/87/20260111_View_of_Xuchang_from_Guansheng_Hall.jpg/960px-20260111_View_of_Xuchang_from_Guansheng_Hall.jpg",
-  1
+  "https://thumb.wikimedia.org/wikipedia/commons/thumb/d/d6/Xingguo_Pagoda%2C_Yanling_8.jpg/960px-Xingguo_Pagoda%2C_Yanling_8.jpg",
+  2
  ],
  "神垕古镇": [
   "https://thumb.wikimedia.org/wikipedia/commons/thumb/8/87/20260111_View_of_Xuchang_from_Guansheng_Hall.jpg/960px-20260111_View_of_Xuchang_from_Guansheng_Hall.jpg",
@@ -5660,20 +5659,20 @@ export const SPOT_IMAGES_DB = {
   1
  ],
  "虢国博物馆": [
-  "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/ad/Smxgongcheng.jpg/960px-Smxgongcheng.jpg",
-  1
+  "https://thumb.wikimedia.org/wikipedia/commons/thumb/1/18/20260504_Chariot_Pit_of_Guo_State_03.jpg/960px-20260504_Chariot_Pit_of_Guo_State_03.jpg",
+  2
  ],
  "亚武山": [
   "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/ad/Smxgongcheng.jpg/960px-Smxgongcheng.jpg",
   1
  ],
  "芒砀山": [
-  "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/a5/20220726_Historic_City_of_Shangqiu_01.jpg/960px-20220726_Historic_City_of_Shangqiu_01.jpg",
-  1
+  "https://thumb.wikimedia.org/wikipedia/commons/thumb/b/b7/20260131_Site_of_the_Han_Dynasty_Ritual_Structures_on_Mount_Mangdang_02.jpg/960px-20260131_Site_of_the_Han_Dynasty_Ritual_Structures_on_Mount_Mangdang_02.jpg",
+  2
  ],
  "燧皇陵": [
-  "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/a5/20220726_Historic_City_of_Shangqiu_01.jpg/960px-20220726_Historic_City_of_Shangqiu_01.jpg",
-  1
+  "https://thumb.wikimedia.org/wikipedia/commons/thumb/f/f2/%E7%87%A7%E4%BA%BA%E6%B0%8F%E9%91%9A%E6%9C%A8%E5%8F%96%E7%81%AB%EF%BC%88%E5%BB%BF%E4%B8%80%E5%8F%B2%E9%80%9A%E4%BF%97%E8%A1%8D%E7%BE%A9%EF%BC%89.jpg/960px-%E7%87%A7%E4%BA%BA%E6%B0%8F%E9%91%9A%E6%9C%A8%E5%8F%96%E7%81%AB%EF%BC%88%E5%BB%BF%E4%B8%80%E5%8F%B2%E9%80%9A%E4%BF%97%E8%A1%8D%E7%BE%A9%EF%BC%89.jpg",
+  2
  ],
  "应天书院": [
   "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/a5/20220726_Historic_City_of_Shangqiu_01.jpg/960px-20220726_Historic_City_of_Shangqiu_01.jpg",
@@ -5681,7 +5680,7 @@ export const SPOT_IMAGES_DB = {
  ],
  "老子故里": [
   "https://upload.wikimedia.org/wikipedia/commons/e/e0/ShayingRiver_Zhoukou.jpg",
-  1
+  2
  ],
  "女娲城": [
   "https://upload.wikimedia.org/wikipedia/commons/e/e0/ShayingRiver_Zhoukou.jpg",
@@ -5800,8 +5799,8 @@ export const SPOT_IMAGES_DB = {
   1
  ],
  "莫愁村": [
-  "https://thumb.wikimedia.org/wikipedia/commons/thumb/f/f8/Jingmen_Zhongtian_Street_01.jpg/960px-Jingmen_Zhongtian_Street_01.jpg",
-  1
+  "https://thumb.wikimedia.org/wikipedia/commons/thumb/9/9d/%E8%8E%AB%E6%84%81%E6%B9%96%E6%99%AF.jpg/960px-%E8%8E%AB%E6%84%81%E6%B9%96%E6%99%AF.jpg",
+  2
  ],
  "黄仙洞": [
   "https://thumb.wikimedia.org/wikipedia/commons/thumb/f/f8/Jingmen_Zhongtian_Street_01.jpg/960px-Jingmen_Zhongtian_Street_01.jpg",
@@ -5812,7 +5811,7 @@ export const SPOT_IMAGES_DB = {
   1
  ],
  "龟峰山": [
-  "https://thumb.wikimedia.org/wikipedia/commons/thumb/c/ce/%E9%BB%84%E5%86%88%E5%A4%A9%E9%99%85%E7%BA%BF.jpg/960px-%E9%BB%84%E5%86%88%E5%A4%A9%E9%99%85%E7%BA%BF.jpg",
+  "https://thumb.wikimedia.org/wikipedia/commons/thumb/8/83/Hubei_Expwy_S37_sign_no_name.svg/960px-Hubei_Expwy_S37_sign_no_name.svg.png",
   1
  ],
  "四祖寺": [
@@ -5868,8 +5867,8 @@ export const SPOT_IMAGES_DB = {
   1
  ],
  "炎帝故里": [
-  "https://thumb.wikimedia.org/wikipedia/commons/thumb/d/de/Suizhou_Railway_Station-1_2015.12.7.jpg/960px-Suizhou_Railway_Station-1_2015.12.7.jpg",
-  1
+  "https://thumb.wikimedia.org/wikipedia/commons/thumb/d/d8/Suizhou-Qingnian_Rd-2_2015.8.10.jpg/960px-Suizhou-Qingnian_Rd-2_2015.8.10.jpg",
+  2
  ],
  "大洪山": [
   "https://thumb.wikimedia.org/wikipedia/commons/thumb/d/de/Suizhou_Railway_Station-1_2015.12.7.jpg/960px-Suizhou_Railway_Station-1_2015.12.7.jpg",
@@ -5896,8 +5895,8 @@ export const SPOT_IMAGES_DB = {
   2
  ],
  "湖南博物院": [
-  "https://thumb.wikimedia.org/wikipedia/commons/thumb/c/cc/%E7%88%B1%E6%99%9A%E4%BA%AD%EF%BC%88%E7%A7%8B-%E4%BE%A7%E9%9D%A2%EF%BC%89.jpg/960px-%E7%88%B1%E6%99%9A%E4%BA%AD%EF%BC%88%E7%A7%8B-%E4%BE%A7%E9%9D%A2%EF%BC%89.jpg",
-  1
+  "https://thumb.wikimedia.org/wikipedia/commons/thumb/0/0a/%E9%95%BF%E6%B2%99%E7%AA%91%E9%9D%92%E9%87%89%E8%A4%90%E5%BD%A9%E8%B4%B4%E8%8A%B1%E4%BA%BA%E7%89%A9%E7%BA%B9%E5%A3%B6%2C_2018-09-28.jpg/960px-%E9%95%BF%E6%B2%99%E7%AA%91%E9%9D%92%E9%87%89%E8%A4%90%E5%BD%A9%E8%B4%B4%E8%8A%B1%E4%BA%BA%E7%89%A9%E7%BA%B9%E5%A3%B6%2C_2018-09-28.jpg",
+  2
  ],
  "太平街": [
   "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/a1/%E5%A4%AA%E5%B9%B3%E8%A1%97.jpg/960px-%E5%A4%AA%E5%B9%B3%E8%A1%97.jpg",
@@ -5924,12 +5923,12 @@ export const SPOT_IMAGES_DB = {
   2
  ],
  "君山岛": [
-  "https://upload.wikimedia.org/wikipedia/commons/1/1b/Frontal_view_of_Yueyang_Tower%2C_Hunan%2C_China1.jpg",
-  1
+  "https://thumb.wikimedia.org/wikipedia/commons/thumb/e/e7/Xiangfei_Ancestral_Temple%2C_Junshan_Island.jpg/960px-Xiangfei_Ancestral_Temple%2C_Junshan_Island.jpg",
+  2
  ],
  "蔡伦竹海": [
-  "https://thumb.wikimedia.org/wikipedia/commons/thumb/9/90/Zhurong_Hall%2C_Mount_Heng_%28Hunan%29%2C_picture2.jpg/960px-Zhurong_Hall%2C_Mount_Heng_%28Hunan%29%2C_picture2.jpg",
-  1
+  "https://thumb.wikimedia.org/wikipedia/commons/thumb/0/00/%E4%BB%8A%E6%97%A5%E8%80%92%E9%98%B32014%E5%B9%B4.jpg/960px-%E4%BB%8A%E6%97%A5%E8%80%92%E9%98%B32014%E5%B9%B4.jpg",
+  2
  ],
  "罗荣桓故居": [
   "https://thumb.wikimedia.org/wikipedia/commons/thumb/9/90/Zhurong_Hall%2C_Mount_Heng_%28Hunan%29%2C_picture2.jpg/960px-Zhurong_Hall%2C_Mount_Heng_%28Hunan%29%2C_picture2.jpg",
@@ -5940,8 +5939,8 @@ export const SPOT_IMAGES_DB = {
   1
  ],
  "酒仙湖": [
-  "https://thumb.wikimedia.org/wikipedia/commons/thumb/f/f5/Mount_Langshan_in_Hunan%2C_Picture49.jpg/960px-Mount_Langshan_in_Hunan%2C_Picture49.jpg",
-  1
+  "https://thumb.wikimedia.org/wikipedia/commons/thumb/c/c8/Jiubujiang_Reservoir%2C_Zhuzhou%2C_Hunan%2C_China.jpg/960px-Jiubujiang_Reservoir%2C_Zhuzhou%2C_Hunan%2C_China.jpg",
+  2
  ],
  "云阳山": [
   "https://thumb.wikimedia.org/wikipedia/commons/thumb/f/f5/Mount_Langshan_in_Hunan%2C_Picture49.jpg/960px-Mount_Langshan_in_Hunan%2C_Picture49.jpg",
@@ -5988,8 +5987,8 @@ export const SPOT_IMAGES_DB = {
   1
  ],
  "大熊山": [
-  "https://thumb.wikimedia.org/wikipedia/commons/thumb/d/da/Tseng_Kuo-fan%27s_Former_Residence_020.JPG/960px-Tseng_Kuo-fan%27s_Former_Residence_020.JPG",
-  1
+  "https://thumb.wikimedia.org/wikipedia/commons/thumb/2/25/Chiyou_Hall%2C_Daxiongshan_National_Forest_Park_2025032802.jpg/960px-Chiyou_Hall%2C_Daxiongshan_National_Forest_Park_2025032802.jpg",
+  2
  ],
  "湄江": [
   "https://thumb.wikimedia.org/wikipedia/commons/thumb/d/da/Tseng_Kuo-fan%27s_Former_Residence_020.JPG/960px-Tseng_Kuo-fan%27s_Former_Residence_020.JPG",
@@ -6081,7 +6080,7 @@ export const SPOT_IMAGES_DB = {
  ],
  "岭南天地": [
   "https://thumb.wikimedia.org/wikipedia/commons/thumb/5/5d/Century_Lotus_Sports_Center_%26_Fangta_seen_from_Dongping_Bridge.jpg/960px-Century_Lotus_Sports_Center_%26_Fangta_seen_from_Dongping_Bridge.jpg",
-  1
+  2
  ],
  "观音山": [
   "https://thumb.wikimedia.org/wikipedia/commons/thumb/7/75/%E5%8E%A6%E9%97%A8%E8%A7%82%E9%9F%B3%E5%B1%B1%E6%A2%A6%E5%B9%BB%E6%B5%B7%E5%B2%B8.jpg/960px-%E5%8E%A6%E9%97%A8%E8%A7%82%E9%9F%B3%E5%B1%B1%E6%A2%A6%E5%B9%BB%E6%B5%B7%E5%B2%B8.jpg",
@@ -6148,8 +6147,8 @@ export const SPOT_IMAGES_DB = {
   1
  ],
  "浪漫海岸": [
-  "https://upload.wikimedia.org/wikipedia/commons/7/7c/%E8%8C%82%E5%90%8D%E5%B8%82.jpg",
-  1
+  "https://thumb.wikimedia.org/wikipedia/commons/thumb/0/0d/Lady_Xian%27s_Grave_01.jpg/960px-Lady_Xian%27s_Grave_01.jpg",
+  2
  ],
  "根子镇": [
   "https://upload.wikimedia.org/wikipedia/commons/7/7c/%E8%8C%82%E5%90%8D%E5%B8%82.jpg",
@@ -6184,8 +6183,8 @@ export const SPOT_IMAGES_DB = {
   1
  ],
  "南岗瑶寨": [
-  "https://thumb.wikimedia.org/wikipedia/commons/thumb/f/f6/%E6%B8%85%E8%BF%9C%E5%B8%82%E5%8C%BA%E5%A4%A9%E9%99%85%E7%BA%BF.jpg/960px-%E6%B8%85%E8%BF%9C%E5%B8%82%E5%8C%BA%E5%A4%A9%E9%99%85%E7%BA%BF.jpg",
-  1
+  "https://thumb.wikimedia.org/wikipedia/commons/thumb/9/97/%E5%8D%83%E5%B9%B4%E7%91%B6%E5%AF%A8%E5%8D%97%E5%B2%97%E6%8E%9220151004_-_panoramio_%2844%29.jpg/960px-%E5%8D%83%E5%B9%B4%E7%91%B6%E5%AF%A8%E5%8D%97%E5%B2%97%E6%8E%9220151004_-_panoramio_%2844%29.jpg",
+  2
  ],
  "南华寺": [
   "https://thumb.wikimedia.org/wikipedia/commons/thumb/5/51/%E5%8D%97%E5%8D%8E%E5%AF%BA%E9%92%9F%E6%A5%BC.JPG/960px-%E5%8D%97%E5%8D%8E%E5%AF%BA%E9%92%9F%E6%A5%BC.JPG",
@@ -6240,8 +6239,8 @@ export const SPOT_IMAGES_DB = {
   1
  ],
  "六祖故里": [
-  "https://thumb.wikimedia.org/wikipedia/commons/thumb/8/8e/Yunfu_in_2013..JPG/960px-Yunfu_in_2013..JPG",
-  1
+  "https://thumb.wikimedia.org/wikipedia/commons/thumb/2/25/%E6%96%B0%E5%85%B4_%E9%BB%84%E5%86%88%E5%A4%A7%E9%81%93.jpg/960px-%E6%96%B0%E5%85%B4_%E9%BB%84%E5%86%88%E5%A4%A7%E9%81%93.jpg",
+  2
  ],
  "蟠龙洞": [
   "https://thumb.wikimedia.org/wikipedia/commons/thumb/8/8e/Yunfu_in_2013..JPG/960px-Yunfu_in_2013..JPG",
@@ -6288,16 +6287,16 @@ export const SPOT_IMAGES_DB = {
   1
  ],
  "百色起义纪念馆": [
-  "https://thumb.wikimedia.org/wikipedia/commons/thumb/7/74/%E7%99%BE%E8%89%B2%E5%B8%82%E5%8F%B3%E6%B1%9F%E5%8D%80%E4%B8%AD%E5%B1%B1%E6%A9%8B_2013.jpg/960px-%E7%99%BE%E8%89%B2%E5%B8%82%E5%8F%B3%E6%B1%9F%E5%8D%80%E4%B8%AD%E5%B1%B1%E6%A9%8B_2013.jpg",
-  1
+  "https://thumb.wikimedia.org/wikipedia/commons/thumb/1/19/Baise_Uprising_Memorial_Hall_%2820230403093423%29.jpg/960px-Baise_Uprising_Memorial_Hall_%2820230403093423%29.jpg",
+  2
  ],
  "乐业大石围": [
   "https://thumb.wikimedia.org/wikipedia/commons/thumb/7/74/%E7%99%BE%E8%89%B2%E5%B8%82%E5%8F%B3%E6%B1%9F%E5%8D%80%E4%B8%AD%E5%B1%B1%E6%A9%8B_2013.jpg/960px-%E7%99%BE%E8%89%B2%E5%B8%82%E5%8F%B3%E6%B1%9F%E5%8D%80%E4%B8%AD%E5%B1%B1%E6%A9%8B_2013.jpg",
   1
  ],
  "通灵大峡谷": [
-  "https://thumb.wikimedia.org/wikipedia/commons/thumb/7/74/%E7%99%BE%E8%89%B2%E5%B8%82%E5%8F%B3%E6%B1%9F%E5%8D%80%E4%B8%AD%E5%B1%B1%E6%A9%8B_2013.jpg/960px-%E7%99%BE%E8%89%B2%E5%B8%82%E5%8F%B3%E6%B1%9F%E5%8D%80%E4%B8%AD%E5%B1%B1%E6%A9%8B_2013.jpg",
-  1
+  "https://thumb.wikimedia.org/wikipedia/commons/thumb/4/4f/%E9%80%9A%E9%9D%88%E5%A4%A7%E5%B3%BD%E8%B0%B7.jpg/960px-%E9%80%9A%E9%9D%88%E5%A4%A7%E5%B3%BD%E8%B0%B7.jpg",
+  2
  ],
  "古龙山": [
   "https://thumb.wikimedia.org/wikipedia/commons/thumb/7/74/%E7%99%BE%E8%89%B2%E5%B8%82%E5%8F%B3%E6%B1%9F%E5%8D%80%E4%B8%AD%E5%B1%B1%E6%A9%8B_2013.jpg/960px-%E7%99%BE%E8%89%B2%E5%B8%82%E5%8F%B3%E6%B1%9F%E5%8D%80%E4%B8%AD%E5%B1%B1%E6%A9%8B_2013.jpg",
@@ -6368,8 +6367,8 @@ export const SPOT_IMAGES_DB = {
   1
  ],
  "黄姚古镇": [
-  "https://thumb.wikimedia.org/wikipedia/commons/thumb/c/cd/%E8%B4%BA%E5%B7%9E%E5%B8%82%E4%B8%80%E8%A7%92.JPG/960px-%E8%B4%BA%E5%B7%9E%E5%B8%82%E4%B8%80%E8%A7%92.JPG",
-  1
+  "https://thumb.wikimedia.org/wikipedia/commons/thumb/b/b0/20260216_Zhaoping_Xian_Huangyao_Zhen_Renmin_Zhengfu.jpg/960px-20260216_Zhaoping_Xian_Huangyao_Zhen_Renmin_Zhengfu.jpg",
+  2
  ],
  "玉石林": [
   "https://thumb.wikimedia.org/wikipedia/commons/thumb/c/cd/%E8%B4%BA%E5%B7%9E%E5%B8%82%E4%B8%80%E8%A7%92.JPG/960px-%E8%B4%BA%E5%B7%9E%E5%B8%82%E4%B8%80%E8%A7%92.JPG",
@@ -6412,12 +6411,12 @@ export const SPOT_IMAGES_DB = {
   1
  ],
  "神州半岛": [
-  "https://thumb.wikimedia.org/wikipedia/commons/thumb/c/cd/Wanning_skyline_%282%29.jpg/960px-Wanning_skyline_%282%29.jpg",
-  1
+  "https://thumb.wikimedia.org/wikipedia/commons/thumb/c/c1/Zhouzai_Island_in_Wanning.jpg/960px-Zhouzai_Island_in_Wanning.jpg",
+  2
  ],
  "铜鼓岭": [
-  "https://thumb.wikimedia.org/wikipedia/commons/thumb/9/96/Wenchang_Spaceflight_Science_Center_%2820230327091359%29.jpg/960px-Wenchang_Spaceflight_Science_Center_%2820230327091359%29.jpg",
-  1
+  "https://thumb.wikimedia.org/wikipedia/commons/thumb/1/1f/Baoling_River_in_Hainan.jpg/960px-Baoling_River_in_Hainan.jpg",
+  2
  ],
  "宋庆龄故居": [
   "https://thumb.wikimedia.org/wikipedia/commons/thumb/0/07/Former_Residence_of_Soong_Ching-ling.jpg/960px-Former_Residence_of_Soong_Ching-ling.jpg",
@@ -6445,7 +6444,7 @@ export const SPOT_IMAGES_DB = {
  ],
  "七仙岭": [
   "https://thumb.wikimedia.org/wikipedia/commons/thumb/5/50/Baoting_Li_and_Miao_Autonomous_County_1.jpg/960px-Baoting_Li_and_Miao_Autonomous_County_1.jpg",
-  1
+  2
  ],
  "神玉岛": [
   "https://thumb.wikimedia.org/wikipedia/commons/thumb/5/50/Baoting_Li_and_Miao_Autonomous_County_1.jpg/960px-Baoting_Li_and_Miao_Autonomous_County_1.jpg",
@@ -6472,8 +6471,8 @@ export const SPOT_IMAGES_DB = {
   1
  ],
  "李庄古镇": [
-  "https://thumb.wikimedia.org/wikipedia/commons/thumb/c/c8/Yibin_birdview.jpg/960px-Yibin_birdview.jpg",
-  1
+  "https://thumb.wikimedia.org/wikipedia/commons/thumb/0/0c/Xizi_Alley%2C_Lizhuang_%2820250118092508%29.jpg/960px-Xizi_Alley%2C_Lizhuang_%2820250118092508%29.jpg",
+  2
  ],
  "夕佳山": [
   "https://thumb.wikimedia.org/wikipedia/commons/thumb/c/c8/Yibin_birdview.jpg/960px-Yibin_birdview.jpg",
@@ -6488,8 +6487,8 @@ export const SPOT_IMAGES_DB = {
   1
  ],
  "彩灯公园": [
-  "https://upload.wikimedia.org/wikipedia/commons/e/e7/Salt_Museum_in_Zigong.jpg",
-  1
+  "https://thumb.wikimedia.org/wikipedia/commons/thumb/3/39/%E8%87%AA%E6%B5%81%E4%BA%95%E5%8C%BA2015-3.jpg/960px-%E8%87%AA%E6%B5%81%E4%BA%95%E5%8C%BA2015-3.jpg",
+  2
  ],
  "仙市古镇": [
   "https://upload.wikimedia.org/wikipedia/commons/e/e7/Salt_Museum_in_Zigong.jpg",
@@ -6516,8 +6515,8 @@ export const SPOT_IMAGES_DB = {
   1
  ],
  "绵竹年画村": [
-  "https://thumb.wikimedia.org/wikipedia/commons/thumb/e/e1/Deyang_skyline.jpg/960px-Deyang_skyline.jpg",
-  1
+  "https://thumb.wikimedia.org/wikipedia/commons/thumb/9/9f/Kokudou_545%28China%29.svg/960px-Kokudou_545%28China%29.svg.png",
+  2
  ],
  "蓥华山": [
   "https://thumb.wikimedia.org/wikipedia/commons/thumb/e/e1/Deyang_skyline.jpg/960px-Deyang_skyline.jpg",
@@ -6596,8 +6595,8 @@ export const SPOT_IMAGES_DB = {
   1
  ],
  "恩阳古镇": [
-  "https://thumb.wikimedia.org/wikipedia/commons/thumb/d/d9/%E5%B7%B4%E4%B8%AD_-_panoramio.jpg/960px-%E5%B7%B4%E4%B8%AD_-_panoramio.jpg",
-  1
+  "https://upload.wikimedia.org/wikipedia/commons/9/92/%E5%B7%B4%E4%B8%AD%E8%A1%97%E5%BF%83%E8%8A%B1%E5%9B%AD_-_panoramio.jpg",
+  2
  ],
  "白衣古镇": [
   "https://thumb.wikimedia.org/wikipedia/commons/thumb/d/d9/%E5%B7%B4%E4%B8%AD_-_panoramio.jpg/960px-%E5%B7%B4%E4%B8%AD_-_panoramio.jpg",
@@ -6652,16 +6651,16 @@ export const SPOT_IMAGES_DB = {
   1
  ],
  "热海": [
-  "https://thumb.wikimedia.org/wikipedia/commons/thumb/b/bc/%E8%85%BE%E5%86%B2%E6%96%87%E5%BA%99_-_%E5%A4%A7%E6%88%90%E6%AE%BF_-_2023-08-03_02.jpg/960px-%E8%85%BE%E5%86%B2%E6%96%87%E5%BA%99_-_%E5%A4%A7%E6%88%90%E6%AE%BF_-_2023-08-03_02.jpg",
-  1
+  "https://thumb.wikimedia.org/wikipedia/commons/thumb/d/d2/%E7%83%AD%E6%B5%B7_%E5%A4%A7%E6%BB%9A%E9%94%85_-_panoramio.jpg/960px-%E7%83%AD%E6%B5%B7_%E5%A4%A7%E6%BB%9A%E9%94%85_-_panoramio.jpg",
+  2
  ],
  "北海湿地": [
   "https://thumb.wikimedia.org/wikipedia/commons/thumb/b/bc/%E8%85%BE%E5%86%B2%E6%96%87%E5%BA%99_-_%E5%A4%A7%E6%88%90%E6%AE%BF_-_2023-08-03_02.jpg/960px-%E8%85%BE%E5%86%B2%E6%96%87%E5%BA%99_-_%E5%A4%A7%E6%88%90%E6%AE%BF_-_2023-08-03_02.jpg",
   1
  ],
  "罗平油菜花": [
-  "https://thumb.wikimedia.org/wikipedia/commons/thumb/7/74/%E6%9B%B2%E9%9D%96%E5%B8%82%E5%A4%A9%E9%99%85%E7%BA%BF_-_%E8%88%AA%E6%8B%8D_-_2024-10-02_10.jpg/960px-%E6%9B%B2%E9%9D%96%E5%B8%82%E5%A4%A9%E9%99%85%E7%BA%BF_-_%E8%88%AA%E6%8B%8D_-_2024-10-02_10.jpg",
-  1
+  "https://thumb.wikimedia.org/wikipedia/commons/thumb/0/0e/Canola_field_in_Luoping.JPG/960px-Canola_field_in_Luoping.JPG",
+  2
  ],
  "通海秀山": [
   "https://thumb.wikimedia.org/wikipedia/commons/thumb/7/77/%E7%8E%89%E6%BA%AA%E5%A4%A9%E9%99%85%E7%BA%BF_-_%E8%88%AA%E6%8B%8D_-_2024-10-22_23.jpg/960px-%E7%8E%89%E6%BA%AA%E5%A4%A9%E9%99%85%E7%BA%BF_-_%E8%88%AA%E6%8B%8D_-_2024-10-22_23.jpg",
@@ -6688,8 +6687,8 @@ export const SPOT_IMAGES_DB = {
   1
  ],
  "潞江坝": [
-  "https://thumb.wikimedia.org/wikipedia/commons/thumb/f/fe/Jade_Emperor_Pavilion_06.jpg/960px-Jade_Emperor_Pavilion_06.jpg",
-  1
+  "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/af/%E6%80%92%E6%B1%9F%E4%BF%9D%E5%B1%B1%E5%B8%82%E9%9A%86%E9%98%B3%E5%8C%BA%E7%99%BB%E9%AB%98%E6%9D%91%E9%99%84%E8%BF%91%E6%B2%B3%E6%AE%B5.jpg/960px-%E6%80%92%E6%B1%9F%E4%BF%9D%E5%B1%B1%E5%B8%82%E9%9A%86%E9%98%B3%E5%8C%BA%E7%99%BB%E9%AB%98%E6%9D%91%E9%99%84%E8%BF%91%E6%B2%B3%E6%AE%B5.jpg",
+  2
  ],
  "小草坝": [
   "https://thumb.wikimedia.org/wikipedia/commons/thumb/3/38/%E5%87%A4%E5%87%B0%E5%B1%B1%E4%B8%8A%E7%9C%8B%E6%98%AD%E9%80%9A_-_panoramio.jpg/960px-%E5%87%A4%E5%87%B0%E5%B1%B1%E4%B8%8A%E7%9C%8B%E6%98%AD%E9%80%9A_-_panoramio.jpg",
@@ -6700,16 +6699,16 @@ export const SPOT_IMAGES_DB = {
   1
  ],
  "玛旁雍措": [
-  "https://thumb.wikimedia.org/wikipedia/commons/thumb/b/be/Potala_palace23.jpg/960px-Potala_palace23.jpg",
-  1
+  "https://thumb.wikimedia.org/wikipedia/commons/thumb/2/23/Kailash-Barkha.jpg/960px-Kailash-Barkha.jpg",
+  2
  ],
  "札达土林": [
-  "https://thumb.wikimedia.org/wikipedia/commons/thumb/b/be/Potala_palace23.jpg/960px-Potala_palace23.jpg",
-  1
+  "https://upload.wikimedia.org/wikipedia/commons/e/e6/Guge_Ruins_in_Tibet.jpg",
+  2
  ],
  "色林措": [
-  "https://thumb.wikimedia.org/wikipedia/commons/thumb/c/c9/%E4%B8%AD%E5%9B%BD%E8%A5%BF%E8%97%8F%E9%82%A3%E6%9B%B2_China_Tibet_Naqu_China_Xinjiang_Urumqi_Welcome_yo_-_panoramio_%281%29.jpg/960px-%E4%B8%AD%E5%9B%BD%E8%A5%BF%E8%97%8F%E9%82%A3%E6%9B%B2_China_Tibet_Naqu_China_Xinjiang_Urumqi_Welcome_yo_-_panoramio_%281%29.jpg",
-  1
+  "https://thumb.wikimedia.org/wikipedia/commons/thumb/5/5b/Siling_Lake.jpg/960px-Siling_Lake.jpg",
+  2
  ],
  "赞丹寺": [
   "https://thumb.wikimedia.org/wikipedia/commons/thumb/c/c9/%E4%B8%AD%E5%9B%BD%E8%A5%BF%E8%97%8F%E9%82%A3%E6%9B%B2_China_Tibet_Naqu_China_Xinjiang_Urumqi_Welcome_yo_-_panoramio_%281%29.jpg/960px-%E4%B8%AD%E5%9B%BD%E8%A5%BF%E8%97%8F%E9%82%A3%E6%9B%B2_China_Tibet_Naqu_China_Xinjiang_Urumqi_Welcome_yo_-_panoramio_%281%29.jpg",
@@ -6720,12 +6719,12 @@ export const SPOT_IMAGES_DB = {
   1
  ],
  "关山草原": [
-  "https://thumb.wikimedia.org/wikipedia/commons/thumb/3/38/View_from_Zhonghua_Shigu_Park_%28%E4%B8%AD%E5%8D%8E%E7%9F%B3%E9%BC%93%E5%9B%AD%29_on_Baoji.jpg/960px-View_from_Zhonghua_Shigu_Park_%28%E4%B8%AD%E5%8D%8E%E7%9F%B3%E9%BC%93%E5%9B%AD%29_on_Baoji.jpg",
-  1
+  "https://upload.wikimedia.org/wikipedia/commons/2/2d/ChinaBaojiLong.png",
+  2
  ],
  "少华山": [
-  "https://thumb.wikimedia.org/wikipedia/commons/thumb/c/c8/Weinan_Station.jpg/960px-Weinan_Station.jpg",
-  1
+  "https://thumb.wikimedia.org/wikipedia/commons/thumb/d/d9/1_mount_hua_shan_china_2011.jpg/960px-1_mount_hua_shan_china_2011.jpg",
+  2
  ],
  "洽川": [
   "https://thumb.wikimedia.org/wikipedia/commons/thumb/c/c8/Weinan_Station.jpg/960px-Weinan_Station.jpg",
@@ -6756,15 +6755,15 @@ export const SPOT_IMAGES_DB = {
   1
  ],
  "柞水溶洞": [
-  "https://thumb.wikimedia.org/wikipedia/commons/thumb/4/4d/Skyline_of_Shangluo%2C_April_30_2023.jpg/960px-Skyline_of_Shangluo%2C_April_30_2023.jpg",
-  1
+  "https://thumb.wikimedia.org/wikipedia/commons/thumb/6/6c/%E6%9F%9E%E6%B0%B4_211%E5%9B%BD%E9%81%93%E6%A1%A5%E4%B8%8A%E7%9C%8B%E6%9F%9E%E6%B0%B4%E5%8E%BF%E5%9F%8E.jpg/960px-%E6%9F%9E%E6%B0%B4_211%E5%9B%BD%E9%81%93%E6%A1%A5%E4%B8%8A%E7%9C%8B%E6%9F%9E%E6%B0%B4%E5%8E%BF%E5%9F%8E.jpg",
+  2
  ],
  "漫川关": [
   "https://thumb.wikimedia.org/wikipedia/commons/thumb/4/4d/Skyline_of_Shangluo%2C_April_30_2023.jpg/960px-Skyline_of_Shangluo%2C_April_30_2023.jpg",
   1
  ],
  "照金": [
-  "https://thumb.wikimedia.org/wikipedia/commons/thumb/b/bf/Yintai%2C_Tongchuan%2C_Shaanxi%2C_China_-_panoramio.jpg/960px-Yintai%2C_Tongchuan%2C_Shaanxi%2C_China_-_panoramio.jpg",
+  "https://thumb.wikimedia.org/wikipedia/commons/thumb/9/98/China_Expwy_G3511_sign_with_name.svg/960px-China_Expwy_G3511_sign_with_name.svg.png",
   1
  ],
  "陈炉古镇": [
@@ -6772,16 +6771,16 @@ export const SPOT_IMAGES_DB = {
   1
  ],
  "雅丹魔鬼城": [
-  "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/a3/Dunhuang_%2823971482995%29.jpg/960px-Dunhuang_%2823971482995%29.jpg",
-  1
+  "https://thumb.wikimedia.org/wikipedia/commons/thumb/6/69/Dunhuang_Yardang_National_Geopark_2.JPG/960px-Dunhuang_Yardang_National_Geopark_2.JPG",
+  2
  ],
  "紫轩葡萄酒": [
   "https://thumb.wikimedia.org/wikipedia/commons/thumb/d/de/Jiayuguan_20151012.jpg/960px-Jiayuguan_20151012.jpg",
   1
  ],
  "冰沟丹霞": [
-  "https://thumb.wikimedia.org/wikipedia/commons/thumb/3/35/Lavender_and_afterglow_in_zhangye.jpg/960px-Lavender_and_afterglow_in_zhangye.jpg",
-  1
+  "https://thumb.wikimedia.org/wikipedia/commons/thumb/c/cc/Zhangye_Danxia.JPG/960px-Zhangye_Danxia.JPG",
+  2
  ],
  "平山湖大峡谷": [
   "https://thumb.wikimedia.org/wikipedia/commons/thumb/3/35/Lavender_and_afterglow_in_zhangye.jpg/960px-Lavender_and_afterglow_in_zhangye.jpg",
@@ -6996,12 +6995,12 @@ export const SPOT_IMAGES_DB = {
   1
  ],
  "回王府": [
-  "https://thumb.wikimedia.org/wikipedia/commons/thumb/3/35/Downtown_Hami_City_night.jpg/960px-Downtown_Hami_City_night.jpg",
-  1
+  "https://thumb.wikimedia.org/wikipedia/commons/thumb/7/77/%E5%93%88%E5%AF%86%E5%9B%9E%E7%8E%8B%E5%A2%93.jpg/960px-%E5%93%88%E5%AF%86%E5%9B%9E%E7%8E%8B%E5%A2%93.jpg",
+  2
  ],
  "白哈巴": [
-  "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/a2/%E6%96%B0%E7%96%86%E9%98%BF%E5%8B%92%E6%B3%B0%E5%B8%82._-_panoramio.jpg/960px-%E6%96%B0%E7%96%86%E9%98%BF%E5%8B%92%E6%B3%B0%E5%B8%82._-_panoramio.jpg",
-  1
+  "https://thumb.wikimedia.org/wikipedia/commons/thumb/8/86/Txu-oclc-6654394-nm-45-3rd-ed.jpg/960px-Txu-oclc-6654394-nm-45-3rd-ed.jpg",
+  2
  ],
  "温宿大峡谷": [
   "https://thumb.wikimedia.org/wikipedia/commons/thumb/6/65/20240322_Duolang_River_in_Aksu.jpg/960px-20240322_Duolang_River_in_Aksu.jpg",
@@ -7012,8 +7011,8 @@ export const SPOT_IMAGES_DB = {
   1
  ],
  "尼雅遗址": [
-  "https://thumb.wikimedia.org/wikipedia/commons/thumb/1/1a/Khotan-mezquita-d04.jpg/960px-Khotan-mezquita-d04.jpg",
-  1
+  "https://thumb.wikimedia.org/wikipedia/commons/thumb/3/35/Five_Stars_Rising_in_the_East_Benefiting_for_the_Central_Plains_armband_%2820230921114337%29.jpg/960px-Five_Stars_Rising_in_the_East_Benefiting_for_the_Central_Plains_armband_%2820230921114337%29.jpg",
+  2
  ],
  "和田夜市": [
   "https://thumb.wikimedia.org/wikipedia/commons/thumb/1/1a/Khotan-mezquita-d04.jpg/960px-Khotan-mezquita-d04.jpg",
@@ -7028,12 +7027,12 @@ export const SPOT_IMAGES_DB = {
   1
  ],
  "独山子大峡谷": [
-  "https://thumb.wikimedia.org/wikipedia/commons/thumb/0/0a/Karamay_River_Jiulongtan.jpg/960px-Karamay_River_Jiulongtan.jpg",
-  1
+  "https://upload.wikimedia.org/wikipedia/commons/9/92/ChinaKaramayDushanzi.png",
+  2
  ],
  "百里油田": [
   "https://thumb.wikimedia.org/wikipedia/commons/thumb/0/0a/Karamay_River_Jiulongtan.jpg/960px-Karamay_River_Jiulongtan.jpg",
-  1
+  2
  ],
  "艾里克湖": [
   "https://thumb.wikimedia.org/wikipedia/commons/thumb/0/0a/Karamay_River_Jiulongtan.jpg/960px-Karamay_River_Jiulongtan.jpg",
