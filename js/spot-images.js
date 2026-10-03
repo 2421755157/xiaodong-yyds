@@ -86,7 +86,11 @@ export function getSpotCover(spotName, provName, type) {
 export function getSpotImages(spotName, provName, count = 3, type) {
   const out = [];
   const e = SPOT_IMAGES_DB[spotName];
-  if (e) out.push(e[0]);
+  if (e) {
+    out.push(e[0]);
+    // 第 3 字段：同景点补充图组（构建期从 Commons 抓取），让图集 3 张都是实景
+    if (Array.isArray(e[2])) for (const u of e[2]) if (u && out.indexOf(u) < 0) out.push(u);
+  }
   const c = loadCache();
   if (c[spotName]) for (const u of c[spotName]) if (out.indexOf(u) < 0) out.push(u);
   while (out.length < count) out.push(placeholder(spotName, type, out.length));

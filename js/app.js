@@ -7,13 +7,27 @@ import { Roamer, isMobile } from './roam.js';
 import { analyzeToday, drawMoodCard } from './mood.js';
 import { FORTUNES, greetingFor, SPOT_MEMES, expandDesc, pickN } from './lexicon.js';
 import { getSpotImages, getSpotCover } from './spot-images.js';
-import { SPOT_DESC_DB } from './spot-desc-db.js';
 import { REGION_DESC_DB } from './region-desc-db.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 
 const $ = s => document.querySelector(s);
+
+// ═══ 景点真实简介库：265KB，按需异步加载，不阻塞首屏网格渲染 ═══
+let SPOT_DESC_DB = {};
+let descDBReady = false;
+let descDBLoading = null;
+let descDBRepainted = false;
+function ensureDescDB() {
+  if (descDBReady) return Promise.resolve(SPOT_DESC_DB);
+  if (!descDBLoading) {
+    descDBLoading = import('./spot-desc-db.js')
+      .then(m => { SPOT_DESC_DB = m.SPOT_DESC_DB || {}; descDBReady = true; return SPOT_DESC_DB; })
+      .catch(() => { descDBReady = true; return {}; });   // 加载失败则全部回退手写简介
+  }
+  return descDBLoading;
+}
 
 // ═══ 景点真实简介（维基词条首段静态库）优先，手写 d 字段作为回退 ═══
 function realDesc(spot) {
@@ -183,6 +197,14 @@ function renderNav() {
     }
   }
   syncHash();
+  // 简介库异步就绪后，用真实简介重绘一次卡片（只重绘一次，避免循环）
+  if (!descDBReady && !descDBRepainted) {
+    ensureDescDB().then(() => {
+      if (descDBRepainted) return;
+      descDBRepainted = true;
+      renderNav();
+    });
+  }
 }
 
 function renderTimeline() {
@@ -370,7 +392,8 @@ function renderRelated(prov, city, spot) {
 }
 
 // ═════════ 景点详情弹窗 ═════════
-function openSpot(prov, city, spot) {
+async function openSpot(prov, city, spot) {
+  await ensureDescDB();
   const isPro = PRO_SCENES[city.n + '|' + spot.n];
   const typeInfo = SPOT_TYPE[spot.t] || SPOT_TYPE.park;
   const seed = spotSeed(spot.n);
