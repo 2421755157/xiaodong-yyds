@@ -26,6 +26,15 @@ function shortDesc(spot, max = 44) {
   else if (t.length > max) t = t.slice(0, max) + '…';
   return t;
 }
+
+// 图片加载骨架屏：加载中显示微光，完成/失败后移除
+function markLoading(img) {
+  if (!img) return;
+  img.classList.add('skel');
+  const done = () => img.classList.remove('skel');
+  img.addEventListener('load', done);
+  img.addEventListener('error', done);
+}
 const MOOD_EMOJI = ['', '😭', '😔', '😐', '🙂', '😄'];
 const MOOD_COLOR = ['', 0x7a9ac9, 0x8fb8c9, 0xb8b8a8, 0xd3b98a, 0xf0c86a];
 
@@ -153,6 +162,7 @@ function renderNav() {
         '<p>' + shortDesc(s) + '</p><div class="spot-meta"><span>' + nav.city.n + '</span>' +
         '<span class="spot-enter">详情 →</span></div></div>';
       const img = card.querySelector('img');
+      markLoading(img);
       img.src = getSpotCover(s.n, nav.prov.n);
       img.addEventListener('error', () => { img.style.display = 'none'; });
       img.addEventListener('load', () => { img.style.display = 'block'; card.querySelector('.cover-glyph').style.display = 'none'; });
@@ -243,6 +253,109 @@ async function fetchWiki(name) {
   } catch (e) { return {}; }
 }
 
+// ═══ 图集灯箱 ═══
+let lbImgs = [], lbIdx = 0;
+function paintLightbox() {
+  const box = $('#lightbox');
+  if (!box || !lbImgs.length) return;
+  box.querySelector('.lb-img').src = lbImgs[lbIdx];
+  box.querySelector('.lb-count').textContent = (lbIdx + 1) + ' / ' + lbImgs.length;
+}
+function stepLightbox(d) {
+  if (!lbImgs.length) return;
+  lbIdx = (lbIdx + d + lbImgs.length) % lbImgs.length;
+  paintLightbox();
+}
+function closeLightbox() {
+  const b = $('#lightbox');
+  if (b) b.hidden = true;
+  document.removeEventListener('keydown', onLbKey);
+}
+function onLbKey(e) {
+  if (e.key === 'Escape') closeLightbox();
+  else if (e.key === 'ArrowLeft') stepLightbox(-1);
+  else if (e.key === 'ArrowRight') stepLightbox(1);
+}
+function openLightbox(urls, idx) {
+  lbImgs = (urls || []).filter(u => u && !u.startsWith('data:'));
+  if (!lbImgs.length) return;
+  lbIdx = Math.max(0, Math.min(idx || 0, lbImgs.length - 1));
+  let box = $('#lightbox');
+  if (!box) {
+    box = document.createElement('div');
+    box.id = 'lightbox';
+    box.className = 'lightbox';
+    box.hidden = true;
+    box.innerHTML =
+      '<button class="lb-close" aria-label="关闭">×</button>' +
+      '<button class="lb-nav lb-prev" aria-label="上一张">‹</button>' +
+      '<img class="lb-img" alt="">' +
+      '<button class="lb-nav lb-next" aria-label="下一张">›</button>' +
+      '<div class="lb-count"></div>';
+    document.body.appendChild(box);
+    box.addEventListener('click', e => {
+      if (e.target === box || e.target.classList.contains('lb-close')) closeLightbox();
+      else if (e.target.classList.contains('lb-prev')) stepLightbox(-1);
+      else if (e.target.classList.contains('lb-next')) stepLightbox(1);
+    });
+  }
+  paintLightbox();
+  box.hidden = false;
+  document.addEventListener('keydown', onLbKey);
+}
+
+// ═══ 简介来源标注 + 展开收起 ═══
+function renderSource(spot) {
+  const el = $('#intro-source');
+  if (!el) return;
+  if (SPOT_DESC_DB[spot.n]) {
+    el.innerHTML = '资料来源：<a href="https://zh.wikipedia.org/wiki/' + encodeURIComponent(spot.n) +
+      '" target="_blank" rel="noopener">中文维基百科 · ' + spot.n + ' 词条</a>';
+    el.hidden = false;
+  } else {
+    el.innerHTML = '';
+    el.hidden = true;
+  }
+}
+function setupDescExpand() {
+  const p = $('#intro-desc'), btn = $('#intro-more');
+  if (!p || !btn) return;
+  const long = (p.textContent || '').length > 76;
+  p.classList.toggle('clamp', long);
+  btn.hidden = !long;
+  btn.textContent = '展开全文 ↓';
+  btn.onclick = () => {
+    const on = p.classList.toggle('clamp');
+    btn.textContent = on ? '展开全文 ↓' : '收起 ↑';
+  };
+}
+
+// ═══ 同城相关推荐 ═══
+function renderRelated(prov, city, spot) {
+  const box = $('#intro-related');
+  if (!box) return;
+  const others = city.spots.filter(s => s.n !== spot.n);
+  if (!others.length) { box.hidden = true; box.innerHTML = ''; return; }
+  // 同类型优先，其次有真实简介的优先
+  const scored = others.map(s => ({ s, k: (s.t === spot.t ? 2 : 0) + (SPOT_DESC_DB[s.n] ? 1 : 0) + spotSeed(s.n) % 2 }));
+  scored.sort((a, b) => b.k - a.k);
+  const picks = scored.slice(0, 6).map(x => x.s);
+  box.hidden = false;
+  box.innerHTML = '<div class="rel-title">同城别处 · <span>' + city.n + '</span></div><div class="rel-row"></div>';
+  const row = box.querySelector('.rel-row');
+  for (const s of picks) {
+    const it = document.createElement('button');
+    it.className = 'rel-item';
+    it.innerHTML = '<img alt="" loading="lazy"><span>' + s.n + '</span>';
+    const im = it.querySelector('img');
+    markLoading(im);
+    im.src = getSpotCover(s.n, prov.n, s.t);
+    im.addEventListener('error', () => { im.style.visibility = 'hidden'; });
+    it.addEventListener('click', () => { closeLightbox(); openSpot(prov, city, s); });
+    row.appendChild(it);
+  }
+}
+
 // ═════════ 景点详情弹窗 ═════════
 function openSpot(prov, city, spot) {
   const isPro = PRO_SCENES[city.n + '|' + spot.n];
@@ -262,12 +375,17 @@ function openSpot(prov, city, spot) {
     }
   }
   const coverImg = coverEl.querySelector('img');
-  if (coverImg) coverImg.addEventListener('error', () => {
-    coverEl.innerHTML = '<div style="position:absolute;inset:0;background:' + city.cover + '"></div><span class="cover-glyph">' + spot.n.charAt(0) + '</span>';
-  });
+  if (coverImg) {
+    markLoading(coverImg);
+    coverImg.addEventListener('error', () => {
+      coverEl.innerHTML = '<div style="position:absolute;inset:0;background:' + city.cover + '"></div><span class="cover-glyph">' + spot.n.charAt(0) + '</span>';
+    });
+  }
   $('#intro-name').textContent = spot.n;
   $('#intro-tag').textContent = prov.n + ' · ' + city.n + ' · ' + typeInfo.label + (isPro ? ' · 精游 3D' : '');
   $('#intro-desc').textContent = realDesc(spot);
+  renderSource(spot);
+  setupDescExpand();
   // 详细解说（程序化扩写 + 真实简介为底）
   $('#intro-detail').textContent = expandDesc(spot.n, spot.t, realDesc(spot));
   // 网友热梗评价
@@ -285,10 +403,17 @@ function openSpot(prov, city, spot) {
     fig.innerHTML = '<img alt="' + caps[i] + '"><figcaption>' + caps[i] + '</figcaption>';
     gal.appendChild(fig);
     const img = fig.querySelector('img');
+    markLoading(img);
     img.src = realImgs[i];
     img.addEventListener('error', () => { fig.style.background = city.cover; img.style.display = 'none'; });
     galImgs.push(img);
   }
+  // 点击图集进入灯箱大图（支持左右键切换、ESC 关闭）
+  galImgs.forEach((img, i) => {
+    img.parentElement.addEventListener('click', () => {
+      openLightbox(galImgs.map(x => x.src), i);
+    });
+  });
   // 异步补搜：拿到更精准的实景图后替换（含地区泛图升级）
   enrichSpotImages(spot.n, prov.n, spot.t, 3).then(urls => {
     urls.slice(0, 3).forEach((u, i) => { if (galImgs[i] && u && !u.startsWith('data:')) galImgs[i].src = u; });
@@ -308,6 +433,8 @@ function openSpot(prov, city, spot) {
     ['3D 漫游', isPro ? '专属精游场景' : '类型化通用场景'],
     ['心绪贴士', '适合放空、记录、释放'],
   ].map(([k, v]) => '<div><b>' + k + '</b>' + v + '</div>').join('');
+  // 同城相关推荐
+  renderRelated(prov, city, spot);
   // 视频
   $('#intro-video').href = 'https://search.bilibili.com/all?keyword=' + encodeURIComponent(prov.n + city.n + spot.n);
   $('#intro-modal').hidden = false;
