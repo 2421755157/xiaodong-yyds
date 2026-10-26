@@ -226,7 +226,7 @@ async function renderNav() {
       const card = document.createElement('div');
       card.className = 'spot-card';
       card.innerHTML =
-        '<div class="spot-cover"><img alt="" loading="lazy" decoding="async" data-img="' + encodeURIComponent(s.n) + '"><span class="cover-glyph">' + s.n.charAt(0) + '</span></div>' +
+        '<div class="spot-cover"><img alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-img="' + encodeURIComponent(s.n) + '"><span class="cover-glyph">' + s.n.charAt(0) + '</span></div>' +
         '<div class="spot-body"><h4>' + s.n + '</h4><span class="tag">' + typeInfo.label + (isPro ? ' · 精游' : '') + '</span>' +
         '<p>' + shortDesc(s) + '</p><div class="spot-meta"><span>' + nav.city.n + '</span>' +
         '<span class="spot-enter">详情 →</span></div></div>';
@@ -446,7 +446,7 @@ function openLightbox(urls, idx) {
     box.innerHTML =
       '<button class="lb-close" aria-label="关闭">×</button>' +
       '<button class="lb-nav lb-prev" aria-label="上一张">‹</button>' +
-      '<img class="lb-img" alt="">' +
+      '<img class="lb-img" alt="" referrerpolicy="no-referrer">' +
       '<button class="lb-nav lb-next" aria-label="下一张">›</button>' +
       '<div class="lb-count"></div>';
     document.body.appendChild(box);
@@ -503,7 +503,7 @@ function renderRelated(prov, city, spot) {
   for (const s of picks) {
     const it = document.createElement('button');
     it.className = 'rel-item';
-    it.innerHTML = '<img alt="" loading="lazy"><span>' + s.n + '</span>';
+    it.innerHTML = '<img alt="" loading="lazy" referrerpolicy="no-referrer"><span>' + s.n + '</span>';
     const im = it.querySelector('img');
     markLoading(im);
     im.src = getSpotCover(s.n, prov.n, s.t);
@@ -773,7 +773,7 @@ async function openSpot(prov, city, spot) {
       // 终极降级：主题渐变占位
       coverEl.innerHTML = '<div style="position:absolute;inset:0;background:' + city.cover + '"></div><span class="cover-glyph">' + spot.n.charAt(0) + '</span>';
     } else {
-      coverEl.innerHTML = '<img src="' + real + '" alt="' + spot.n + '">';
+      coverEl.innerHTML = '<img src="' + real + '" alt="' + spot.n + '" referrerpolicy="no-referrer">';
     }
   }
   const coverImg = coverEl.querySelector('img');
@@ -829,7 +829,7 @@ async function openSpot(prov, city, spot) {
     for (let i = 0; i < 3; i++) {
       const fig = document.createElement('figure');
       if (!realImgs[i] || realImgs[i].startsWith('data:')) fig.className = 'no-zoom';
-      fig.innerHTML = '<img alt="' + caps[i] + '" loading="lazy" decoding="async"><figcaption>' + caps[i] + '</figcaption>';
+      fig.innerHTML = '<img alt="' + caps[i] + '" loading="lazy" decoding="async" referrerpolicy="no-referrer"><figcaption>' + caps[i] + '</figcaption>';
       gal.appendChild(fig);
       const img = fig.querySelector('img');
       markLoading(img);

@@ -13,6 +13,10 @@ export const XINAN = [
           { n: '青城山', t: 'mountain', d: '道教。' },
           { n: '杜甫草堂', t: 'ruin', d: '诗圣。' },
           { n: '太古里', t: 'modern', d: '时尚。' },
+          { n: '金沙遗址', t: 'ruin', d: '商周古蜀遗址，太阳神鸟金饰出土于此。' },
+          { n: '文殊院', t: 'temple', d: '川西四大丛林之一，素斋与茶馆都很成都。' },
+          { n: '青羊宫', t: 'temple', d: '川西第一道观，铜羊与三清殿。' },
+          { n: '望江楼', t: 'park', d: '薛涛井畔的园林，竹种最全，临锦江。' },
         ] },
       { n: '乐山', desc: '佛，三江。', cover: 'linear-gradient(135deg,#4a4a3a,#7a7a5a)',
         spots: [

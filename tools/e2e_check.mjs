@@ -228,6 +228,20 @@ function check(name, ok, detail = '') {
     "performance.getEntriesByType('resource').some(r => /spot-images-db\\.js/.test(r.name))");
   check('进入景点层后图库已加载', imgDbLoaded === true, String(imgDbLoaded));
 
+  // 图片必须真的解码出来（naturalWidth>0），而不只是 src 有值。
+  // 这条是本轮的关键回归点：Wikimedia 域名在国内不可达时，
+  // src 看着正常、图片却全是空白，只有 naturalWidth 能测出来。
+  await sleep(2500);
+  const imgReal = await cdp.eval(`(() => {
+    const imgs = [...document.querySelectorAll('.spot-card img')].filter(i => i.src && !i.src.startsWith('data:'));
+    const loaded = imgs.filter(i => i.naturalWidth > 0);
+    return JSON.stringify({ total: imgs.length, loaded: loaded.length,
+      host: imgs[0] ? new URL(imgs[0].src).host : '', sample: loaded[0] ? loaded[0].naturalWidth : 0 });
+  })()`);
+  const ir = JSON.parse(imgReal);
+  check('景点封面图片真实解码', ir.total > 0 && ir.loaded > 0,
+    `${ir.loaded}/${ir.total} 张 ${ir.sample}px @ ${ir.host}`);
+
   // 5) 景点卡 → 详情弹窗（用户反馈打不开的地方）
   await cdp.eval("document.querySelector('.spot-card').click()");
   await sleep(2500);

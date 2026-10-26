@@ -253,3 +253,59 @@ io.open(p, 'wb').write(d.encode('utf-8'))
 
 教训：**测试跑绿不代表测试有效。** 换一个部署路径、做一次负向注入，
 往往能暴露出「断言恒为真」这种更危险的问题。
+
+**22. Wikimedia 图片域名在国内已不可达，而这一点很难被发现。**
+
+`upload.wikimedia.org` 与 `thumb.wikimedia.org`（后者是 CNAME 到 dyna.wikimedia.org 的
+合法域名）在浏览器里 `naturalWidth === 0`，**照片区域是空白**，
+但页面本身不报错、`img.src` 看着完全正常。
+
+**只有清缓存才能测出来**：
+```js
+await send('Network.clearBrowserCache');   // 关键
+// 然后检查 img.naturalWidth > 0，而不是检查 img.src 有没有值
+```
+有缓存时图片能显示，会让人误以为一切正常。E2E 里那条
+`景点封面图片真实解码` 就是为此加的——它断言的是 `naturalWidth`，
+不是 `src` 非空。
+
+**23. 百度百科：curl 403，Runtime.evaluate 会挂死，正确姿势是取 HTML 源码。**
+
+- `curl baike.baidu.com/item/xxx` → **403**（无浏览器指纹）
+- `Runtime.evaluate('document.title')` → **长时间不返回**（页面主线程繁忙）
+- **正解**：`Network.getResponseBody` 直接拿主文档 HTML，正则解析 `<head>`：
+  ```js
+  Network.responseReceived (type==='Document') → 记 requestId
+  Network.loadingFinished 同 id → Network.getResponseBody
+  ```
+  `og:image` 与 `name="description"` 都在服务端渲染的 head 里，不依赖 JS。
+  单条约 0.3 秒，比 evaluate 快且不会挂。
+
+**24. 抓取频率过高会被百度风控（403「百度安全验证」），而且恢复很慢。**
+
+实测 8.6 条/秒跑了 1700 条后，**整批变成 not-found**——
+不是词条不存在，是返回了「百度安全验证」页面（HTTP 403，HTML 里没有 og:image），
+被脚本误判成 `not-found`。之后即使降到 1 条/2 秒、等 40 分钟仍未解封。
+
+三条教训：
+1. **判失败要区分「词条不存在」和「被风控」**——检查响应状态码与
+   `百度安全验证` 关键字，否则会把风控误记成数据缺失，越抓越错
+2. 并发抓百科控制在 **2-3 并发 + 200ms 间隔**以内
+3. 跑几分钟后换一个干净 target（`--rebuild 60`），
+   否则 `Page.navigate` 会成批超时
+
+**25. 百度图片 CDN 有防盗链，且 Three.js 的 TextureLoader 绕不过去。**
+
+`bkimg.cdn.bcebos.com`：
+- 不带 Referer → 200
+- 带任意 Referer（含本站域名）→ **403**
+
+`<img>` 可以加 `referrerpolicy="no-referrer"` 绕过，
+但 3D 场景里 `new THREE.TextureLoader().load(url)` 没有这个选项，
+实景看板必然 403、控制台报错。
+
+**所以最终选择下载到本地**（`img/baike/`）：同源请求，一劳永逸。
+178 张共 12MB，用景点名的 md5 命名（避免中文路径在 Windows/GitHub Pages 上的编码问题）。
+
+> 注意：不要为了绕防盗链给整站加 `<meta name="referrer" content="no-referrer">`。
+> 百度**静态地图**反过来要求 Referer 在白名单内，全局关掉会让小地图直接挂掉。

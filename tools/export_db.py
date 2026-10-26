@@ -18,7 +18,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from common import DATA, JS, base_of, is_blocked, js_export, load_json
 
 SRC_CONF = {'wikidata': 3, 'wiki': 3, 'kept3': 3, 'kept2': 2, 'commons': 2,
-            'wiki-search': 2, 'article': 2, 'region': 1}
+            'wiki-search': 2, 'article': 2, 'region': 1,
+            # 百度百科词条主图：景点专属，按最高置信度处理
+            'baike': 3}
 
 
 def main():
