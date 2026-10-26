@@ -24,6 +24,7 @@ tools/
 ├── merge_baike.py         把百科图文并入 img_db / desc_db / long_db
 ├── baidu_retry.mjs        百科 HTML 通道低频重试（自动拉起/关闭无头浏览器）
 ├── fetch_baike.mjs        百科 HTML 通道（需无头浏览器，被风控时不可用）
+├── build_covers.py        生成省市卡片封面库 → js/cover-db.js（34 省地标 + 354 城实景）
 ├── export_db.py           导出图片库（去重 + 敏感过滤）→ spot-images-db.js / spot-gallery-db.js
 ├── fetch_long_desc.py    抓历史沿革长介绍 → js/long-db-0..7.js（8 片按需加载）
 ├── fetch_panorama.py     抓真实全景图 → js/panorama-db.js（sphere/wide）

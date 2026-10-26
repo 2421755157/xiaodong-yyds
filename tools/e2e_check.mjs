@@ -210,6 +210,35 @@ function check(name, ok, detail = '') {
   const stats = await cdp.eval("document.querySelectorAll('#hero-stats .stat-cell').length");
   check('首页数据条渲染', stats >= 4, stats + ' 项');
 
+  // 2b) 省卡封面：必须铺上真实照片并真的解码出来。
+  //     只断言"有 img 元素"不够——图片 404 时它照样在，只是空白。
+  //     视口外的卡片是 loading=lazy，不会立刻解码，所以按"已解码张数"判定。
+  await sleep(1200);
+  // 先滑一屏把 loading=lazy 的卡片唤起来，再回到顶部，保证张数不是"只有首屏那几张"
+  await cdp.eval("scrollTo(0, 900)");
+  await sleep(1400);
+  await cdp.eval("scrollTo(0, 0)");
+  await sleep(600);
+  const provCovRaw = await cdp.eval(`(async () => {
+    const imgs = [...document.querySelectorAll('.spot-card .spot-cover img')];
+    const local = imgs.filter(i => (i.getAttribute('src') || '').startsWith('img/cover/'));
+    // 视口外的卡片是 loading=lazy，解码张数取决于窗口大小；
+    // 所以再直接取几张图发请求，确认文件本身可取（不是 404）
+    const probe = await Promise.all(local.slice(0, 3).map(u =>
+      fetch(u.getAttribute('src')).then(r => r.status).catch(() => 0)));
+    return JSON.stringify({
+      total: imgs.length,
+      decoded: imgs.filter(i => i.naturalWidth > 0).length,
+      local: local.length,
+      probe,
+    });
+  })()`);
+  const provCov = JSON.parse(provCovRaw);
+  const probeOk = provCov.probe.length > 0 && provCov.probe.every(s => s === 200);
+  check('省卡封面是真实照片',
+    provCov.total >= 30 && provCov.local >= 30 && provCov.decoded >= 4 && probeOk,
+    `${provCov.decoded}/${provCov.total} 已解码，${provCov.local} 张本地图，请求状态 ${provCov.probe.join('/')}`);
+
   // 3) 省卡 → 城市列表（直辖市只有 1 个市属正常，故只断言 >0）
   await cdp.eval("document.querySelector('.spot-card').click()");
   await sleep(1200);

@@ -5,7 +5,7 @@
 2) 所有 import 路径是否有对应文件
 3) 所有 addEventListener / querySelector 绑定的关键元素是否存在
 """
-import io, os, re, sys
+import io, json, os, re, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 JS = os.path.join(ROOT, 'js')
@@ -102,6 +102,32 @@ for f in sorted(os.listdir(JS)):
                    r'|export\s*\{[^}]*\b' + re.escape(n) + r'\b[^}]*\}')
             if not re.search(pat, tsrc):
                 problems.append('%s: 从 %s 导入的 %s 未在目标文件导出' % (f, m.group(2), n))
+
+# 5) 省市封面库：每个省级行政区都要有封面，且引用的图片文件必须真的存在
+#    （封面是卡片的第一眼内容，漏一个省就是一张光秃秃的渐变卡）
+cover_path = os.path.join(JS, 'cover-db.js')
+if os.path.exists(cover_path):
+    csrc = io.open(cover_path, encoding='utf-8').read()
+
+    def cover_block(name):
+        m = re.search(name + r'\s*=\s*(\{.*?\n\});', csrc, re.S)
+        try:
+            return json.loads(m.group(1)) if m else {}
+        except ValueError:
+            problems.append('cover-db.js: %s 不是合法 JSON' % name)
+            return {}
+
+    prov_cov = cover_block('PROV_COVER')
+    city_cov = cover_block('CITY_COVER')
+    spots = json.load(io.open(os.path.join(ROOT, 'data', 'spots_uniq.json'), encoding='utf-8'))
+    for prov in sorted({s.get('prov', '') for s in spots} - {''}):
+        if prov not in prov_cov:
+            problems.append('cover-db.js: 省份缺少封面  %s' % prov)
+    for key, rel in list(prov_cov.items()) + list(city_cov.items()):
+        if not os.path.exists(os.path.join(ROOT, rel.replace('/', os.sep))):
+            problems.append('cover-db.js: %s 的封面文件不存在  %s' % (key, rel))
+else:
+    problems.append('js/cover-db.js 不存在（跑 python tools/build_covers.py 生成）')
 
 print('检查完成：%d 个问题' % len(problems))
 for p in problems:

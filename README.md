@@ -32,6 +32,15 @@
 - **1666 个景点**有**多图图组**（主图 + 2 张补充实景），补充图取自图搜结果，
   在详情页打开时才懒加载
 
+### 全国页 · 省市封面
+- **34 个省级行政区**的卡片封面换成该地最有辨识度的**地标实景**（故宫、外滩、天津之眼、
+  洪崖洞、平遥古城、黄山云海、布达拉宫…），不再是一层渐变底 + 一个单字
+- **354 个城市**卡片复用该市首个景点照片，零额外体积
+- 封面由 `tools/build_covers.py` 生成：先手工指定每个省的地标，再图搜，
+  并要求**图片标题里含该地名**（否则「天津之眼」会搜出简笔画、「湖北」会搜出绘画素材），
+  同时丢掉竖图与地图/门票类，最后裁成横构图压到 1000px
+- 图片缺失或加载失败自动退回原来的渐变底 + 单字，不会出现破图
+
 ### 景点详情页
 - 图集**灯箱**查看：点击放大，← → 切换、Esc 关闭
 - **同城别处**推荐：同类型景点优先，点击直接切换
@@ -218,6 +227,7 @@ node tools/build-spot-index.mjs            # 重建景点/省市索引
 python tools/fetch_baike_api.py --all      # ★ 主通道：百科 openapi 摘要 + 图搜照片（无浏览器）
 python tools/download_baike_img.py         # 把图片下载到 img/baike/ 并压到 800px（同源托管）
 python tools/merge_baike.py                # 并入 img_db / desc_db / long_db
+python tools/build_covers.py               # 生成省市卡片封面 → js/cover-db.js + img/cover/
 python tools/fetch_descriptions.py          # 补真实简介（景点 + 省市）
 python tools/fetch_images.py --mode gallery --limit 500   # 补景点照片（Wikimedia，备用）
 python tools/export_db.py                   # 导出前端静态库

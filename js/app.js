@@ -18,6 +18,7 @@ import { streetViewFor, hasStreetView, POIID_DB } from './streetview.js';
 import { staticMapUrl, hasStaticMap, MAP_VIEWS, mapViewByKey, baiduMapLink } from './staticmap.js';
 import { lazyDB } from './lazy-db.js';
 import { REGION_DESC_DB } from './region-desc-db.js';
+import { PROV_COVER, CITY_COVER } from './cover-db.js';
 
 const $ = s => document.querySelector(s);
 
@@ -55,6 +56,33 @@ function markLoading(img) {
   const done = () => img.classList.remove('skel');
   img.addEventListener('load', done);
   img.addEventListener('error', done);
+}
+
+// ═══ 省/市卡片封面 ═══
+// 有实景照片就铺图，渐变底始终垫在下面：图片没下完、404、被网络拦掉时
+// 都只是"没换成照片"，不会出现破图或空白的卡片。
+function coverHTML(gradient, glyph, url) {
+  return '<div class="spot-cover">' +
+    '<div style="position:absolute;inset:0;background:' + gradient + '"></div>' +
+    // img 需要 position:relative 才能压在上面那层绝对定位的渐变底之上
+    (url ? '<img alt="" loading="lazy" decoding="async" style="position:relative" src="' + url + '">' : '') +
+    '<span class="cover-glyph"' + (url ? ' style="display:none"' : '') + '>' + glyph + '</span>' +
+    '</div>';
+}
+
+function wireCover(card) {
+  const img = card.querySelector('.spot-cover img');
+  if (!img) return;
+  const glyph = card.querySelector('.cover-glyph');
+  markLoading(img);
+  img.addEventListener('load', () => {
+    img.style.display = 'block';
+    if (glyph) glyph.style.display = 'none';
+  });
+  img.addEventListener('error', () => {
+    img.remove();
+    if (glyph) glyph.style.display = '';
+  });
 }
 
 // ═══ 省市真实简介（维基词条静态库）═══
@@ -193,11 +221,11 @@ async function renderNav() {
       const card = document.createElement('div');
       card.className = 'spot-card';
       card.innerHTML =
-        '<div class="spot-cover"><div style="position:absolute;inset:0;background:' + p.cover + '"></div>' +
-        '<span class="cover-glyph">' + p.c + '</span></div>' +
+        coverHTML(p.cover, p.c, PROV_COVER[p.n]) +
         '<div class="spot-body"><h4>' + p.n + '</h4><span class="tag">省会 ' + p.cap + '</span>' +
         '<p>' + tagline(provDesc(p), 40) + '</p><div class="spot-meta"><span>下辖 <b>' + p.cities.length + '</b> 市</span>' +
         '<span class="spot-enter">进入 →</span></div></div>';
+      wireCover(card);
       card.addEventListener('click', () => { nav = { level: 'city', prov: p }; renderNav(); });
       grid.appendChild(card);
     }
@@ -209,11 +237,11 @@ async function renderNav() {
       card.className = 'spot-card';
       const spotsN = c.spots.length;
       card.innerHTML =
-        '<div class="spot-cover"><div style="position:absolute;inset:0;background:' + c.cover + '"></div>' +
-        '<span class="cover-glyph">' + c.n.charAt(0) + '</span></div>' +
+        coverHTML(c.cover, c.n.charAt(0), CITY_COVER[nav.prov.n + '|' + c.n]) +
         '<div class="spot-body"><h4>' + c.n + '</h4><span class="tag">' + nav.prov.n + '</span>' +
         '<p>' + tagline(cityDesc(nav.prov, c), 40) + '</p><div class="spot-meta"><span><b>' + spotsN + '</b> 处风景</span>' +
         '<span class="spot-enter">查看 →</span></div></div>';
+      wireCover(card);
       card.addEventListener('click', () => { nav = { level: 'spot', prov: nav.prov, city: c }; renderNav(); });
       grid.appendChild(card);
     }
