@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>夜游神 · 山河漫游</title>
+<link rel="stylesheet" href="styles/main.css">
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.164.1/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.164.1/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+
+<!-- ══════════ 登录屏 ══════════ -->
+<section id="gate">
+  <canvas id="gate-particles"></canvas>
+  <div class="gate-inner">
+    <p class="gate-eyebrow">NIGHT ROAMER · 山河漫游</p>
+    <h1 class="gate-title">天黑了<br>该<span class="gold">出去走走</span>了</h1>
+    <p class="gate-sub">白天归生活，夜里归自己。<br>三千山河，随便逛，不赶时间。</p>
+    <div class="gate-form">
+      <input id="gate-name" type="text" maxlength="12" placeholder="怎么称呼你？（随口编一个也行）" autocomplete="off">
+      <button id="gate-enter" class="btn-gold">出门夜游 →</button>
+    </div>
+    <p class="gate-foot">数据只存在你自己的浏览器里 · 没有人知道你来过</p>
+  </div>
+</section>
+
+<!-- ══════════ 主页：城市风景 ══════════ -->
+<section id="home" hidden>
+  <header class="home-head">
+    <div class="brand">
+      <span class="brand-mark">夜</span>
+      <div class="brand-text">
+        <b>夜游神 · 山河漫游</b>
+        <i>NIGHT ROAMER</i>
+      </div>
+    </div>
+    <div class="head-right">
+      <div class="user-badge">
+        <span id="user-name"></span>
+        <em id="user-title"></em>
+      </div>
+      <button class="btn-ghost" id="btn-fortune">摇一签</button>
+      <button class="btn-ghost" id="btn-shredder">碎碎平安</button>
+      <button class="btn-gold" id="btn-mood-home">鉴定精神状态</button>
+      <button class="btn-ghost" id="btn-profile">我的</button>
+      <button class="btn-ghost" id="btn-logout" title="换个身份">收工</button>
+    </div>
+  </header>
+
+  <div class="hero">
+    <p class="hero-eyebrow" id="hero-greet"></p>
+    <h2 id="hero-line">把白天的自己寄存在门口，<br>进来走一圈。</h2>
+    <div class="hero-stats" id="hero-stats"></div>
+  </div>
+
+  <div class="breadcrumb" id="breadcrumb"></div>
+
+  <div class="search-box">
+    <input id="search-input" type="text" placeholder="搜景点 / 城市 / 省份，例如：故宫、丽江、云南" autocomplete="off">
+    <button class="btn-gold" id="search-btn">搜索</button>
+  </div>
+  <div class="search-results" id="search-results"></div>
+
+  <div class="spot-grid" id="spot-grid"><!-- 省/市/景点卡片由 JS 渲染 --></div>
+
+  <div class="home-lower">
+    <div class="panel timeline-panel">
+      <div class="panel-head">
+        <h3>足迹时间线</h3>
+        <span class="panel-note" id="fp-count"></span>
+      </div>
+      <div id="timeline" class="timeline"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════ 3D 场景屏 ══════════ -->
+<section id="stage" hidden>
+  <canvas id="scene-canvas"></canvas>
+
+  <div id="lock-mask">
+    <div class="lock-inner">
+      <b id="lock-title">点击画面，进入这里</b>
+      <span class="lock-hint-desktop">W A S D 移动 · 鼠标环视 · Shift 疾走 · E 留下足迹</span>
+      <span class="lock-hint-mobile">左侧摇杆移动 · 右侧滑动环视 · 点击按钮互动</span>
+      <p class="lock-disclaimer">场景由程序实时生成，仅供娱乐参考，不代表实景</p>
+    </div>
+  </div>
+
+  <!-- 移动端触摸控制 -->
+  <div id="touch-controls" hidden>
+    <div id="joystick-zone">
+      <div id="joystick-base"><div id="joystick-knob"></div></div>
+    </div>
+    <div id="touch-look-zone"></div>
+    <div id="touch-btns">
+      <button class="touch-btn" id="touch-fp">足迹</button>
+      <button class="touch-btn" id="touch-info">解说</button>
+    </div>
+  </div>
+
+  <div class="hud hud-tl">
+    <button class="btn-ghost" id="btn-back">← 回到门口</button>
+    <div class="hud-spot">
+      <b id="hud-spot-name"></b>
+      <i id="hud-spot-tag"></i>
+    </div>
+  </div>
+
+  <div class="hud hud-tr">
+    <button class="btn-ghost" id="btn-theme" title="切换时辰">时辰</button>
+    <button class="btn-gold" id="btn-mood-scene">心情鉴定</button>
+  </div>
+
+  <div id="crosshair"></div>
+  <div id="hotspot-tip" hidden></div>
+  <div id="fp-tip" hidden></div>
+
+  <div class="hud hud-bc hud-desktop-only">
+    <span class="kbd">W</span><span class="kbd">A</span><span class="kbd">S</span><span class="kbd">D</span> 移动
+    · <span class="kbd">Shift</span> 疾走
+    · <span class="kbd">E</span> 留下足迹
+    · <span class="kbd">G</span> 看标志地点解说
+    · <span class="kbd">F</span> 心情鉴定
+    · <span class="kbd">Esc</span> 松手
+    <span class="hud-disclaimer">| 场景程序化生成，仅供参考</span>
+  </div>
+</section>
+
+<!-- ══════════ 弹窗：景点介绍 ══════════ -->
+<div class="modal" id="intro-modal" hidden>
+  <div class="modal-card intro-card">
+    <button class="intro-close" id="intro-x">×</button>
+    <div class="intro-cover" id="intro-cover"></div>
+    <div class="intro-body">
+      <h3 id="intro-name"></h3>
+      <span class="tag" id="intro-tag"></span>
+      <p class="intro-desc" id="intro-desc"></p>
+      <button class="intro-more" id="intro-more" hidden>展开全文 ↓</button>
+      <div class="intro-source" id="intro-source" hidden></div>
+      <p class="intro-detail" id="intro-detail"></p>
+      <div class="intro-history" id="intro-history" hidden>
+        <div class="hist-head"><span class="hist-dot"></span><span id="hist-title">来历 · 历史沿革</span></div>
+        <p class="hist-text" id="hist-text"></p>
+        <button class="hist-more" id="hist-more" hidden>展开全文 ↓</button>
+      </div>
+      <div class="intro-gallery" id="intro-gallery"></div>
+      <div class="meme-box">
+        <div class="meme-title">◍ 网友热梗评价</div>
+        <div id="intro-memes"></div>
+      </div>
+      <div class="intro-meta" id="intro-meta"></div>
+      <div class="intro-map" id="intro-map" hidden>
+        <div class="map-head"><span class="hist-dot"></span><span>位置 · 在城里的方位</span></div>
+        <div class="map-frame"><img id="map-img" alt="景点位置图"></div>
+        <div class="map-actions">
+          <button class="map-btn on" id="map-view-block">街区</button>
+          <button class="map-btn" id="map-view-area">城区</button>
+          <button class="map-btn" id="map-view-city">全域</button>
+          <a class="map-btn map-link" id="map-open" target="_blank" rel="noopener">在百度地图打开 ↗</a>
+          <span class="map-note">底图 © 百度地图</span>
+        </div>
+      </div>
+      <div class="intro-related" id="intro-related" hidden></div>
+      <div id="cover-note"></div>
+      <div class="intro-actions">
+        <div class="intro-act-left">
+          <a class="btn-ghost intro-video" id="intro-video" target="_blank" rel="noopener">看视频 →</a>
+          <button class="btn-ghost" id="intro-pick">🖼 自选封面</button>
+          <button class="btn-ghost pano-btn" id="intro-pano" hidden>🖐 实景全景</button>
+          <button class="btn-ghost pano-btn" id="intro-street" hidden>🛣 实景街景</button>
+          <button class="btn-ghost" id="intro-reset-cover" hidden>恢复默认</button>
+        </div>
+        <button class="btn-gold" id="intro-enter">进入 3D 漫游 →</button>
+      </div>
+      <input type="file" id="cover-input" accept="image/*" hidden>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ 弹窗：场景内标志地点解说 ══════════ -->
+<div class="modal" id="spot-detail-modal" hidden>
+  <div class="modal-card intro-card">
+    <button class="intro-close" onclick="document.getElementById('spot-detail-modal').hidden=true">×</button>
+    <div class="intro-cover"><img id="detail-img" alt=""></div>
+    <div class="intro-body">
+      <h3 id="detail-title"></h3>
+      <p class="intro-desc" id="detail-desc"></p>
+      <div class="intro-history" id="detail-history" hidden>
+        <div class="hist-head"><span class="hist-dot"></span><span>此处 · 历史来历</span></div>
+        <p class="hist-text" id="detail-history-text"></p>
+      </div>
+      <p class="intro-desc" id="detail-long" style="color:var(--ink-dim);font-size:13px;line-height:2"></p>
+      <div class="intro-actions">
+        <button class="btn-ghost pano-btn" id="detail-pano" hidden>🖐 实景全景</button>
+        <button class="btn-ghost" onclick="document.getElementById('spot-detail-modal').hidden=true;document.getElementById('scene-canvas').requestPointerLock&&document.getElementById('scene-canvas').requestPointerLock()">继续漫游</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ 弹窗：留下足迹 ══════════ -->
+<div class="modal" id="note-modal" hidden>
+  <div class="modal-card">
+    <h3 id="note-title">此刻 · 某处</h3>
+    <p class="modal-sub">想点什么就写什么。这里没人看见，也没人评判。</p>
+    <div class="note-mood-row" id="note-moods">
+      <button data-mood="1" title="碎掉了">😭</button>
+      <button data-mood="2" title="有点丧">😔</button>
+      <button data-mood="3" title="无波无澜">😐</button>
+      <button data-mood="4" title="还可以">🙂</button>
+      <button data-mood="5" title="活过来了">😄</button>
+    </div>
+    <div class="note-score-row">
+      <label>给这个地方打个分</label>
+      <div id="note-stars"></div>
+      <b id="note-score-num">8</b>
+    </div>
+    <textarea id="note-text" rows="4" maxlength="500" placeholder="此刻的风、心里的事、没处说的话……"></textarea>
+    <div class="modal-actions">
+      <button class="btn-ghost" id="note-cancel">算了</button>
+      <button class="btn-gold" id="note-submit">留下足迹</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ 弹窗：心情鉴定卡 ══════════ -->
+<div class="modal" id="mood-modal" hidden>
+  <div class="modal-card mood-card-wrap">
+    <canvas id="mood-canvas" width="1080" height="1350"></canvas>
+    <div class="modal-actions">
+      <button class="btn-ghost" id="mood-close">收好</button>
+      <button class="btn-gold" id="mood-download">下载卡片 PNG</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ 弹窗：每日一签 ══════════ -->
+<div class="modal" id="fortune-modal" hidden>
+  <div class="modal-card fortune-card">
+    <p class="fortune-eyebrow">夜游神 · 灵签办事处</p>
+    <p class="fortune-serial" id="fortune-serial"></p>
+    <p class="fortune-level" id="fortune-level"></p>
+    <h3 id="fortune-text"></h3>
+    <p id="fortune-sub"></p>
+    <p class="fortune-yiji" id="fortune-yiji"></p>
+    <div class="modal-actions">
+      <button class="btn-gold" id="fortune-close">领旨谢恩</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ 弹窗：情绪粉碎机 ══════════ -->
+<div class="modal" id="shredder-modal" hidden>
+  <div class="modal-card">
+    <h3>碎碎平安 · 情绪粉碎局</h3>
+    <p class="modal-sub">写下来，点粉碎。不保存、不上传、不留证据。<br>碎完就是碎完了，谁也拼不回来。</p>
+    <p class="shred-count" id="shred-count"></p>
+    <textarea id="shred-text" rows="5" maxlength="1000" placeholder="把最烦的事、最烦的人、最烦的自己，全写在这儿……"></textarea>
+    <div class="modal-actions">
+      <button class="btn-ghost" id="shred-close">先留着</button>
+      <button class="btn-danger" id="shred-go">粉 碎 它</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ 弹窗：心情问卷（无足迹时） ══════════ -->
+<div class="modal" id="quiz-modal" hidden>
+  <div class="modal-card quiz-card">
+    <p class="quiz-eyebrow">夜游神 · 精神状态快速鉴定</p>
+    <h3 id="quiz-title">今天没出门？没关系，躺着也能鉴定。</h3>
+    <div id="quiz-body"></div>
+    <div class="modal-actions">
+      <button class="btn-ghost" id="quiz-close">算了不鉴定了</button>
+      <button class="btn-gold" id="quiz-submit" disabled>出鉴定结果 →</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ 弹窗：个人主页 ══════════ -->
+<div class="modal" id="profile-modal" hidden>
+  <div class="modal-card profile-card">
+    <p class="fortune-eyebrow">夜游神 · 我的档案</p>
+    <div class="profile-avatar" id="profile-avatar">游</div>
+    <div class="profile-field">
+      <label>称呼</label>
+      <input id="profile-name" type="text" maxlength="12" placeholder="你的夜游代号">
+    </div>
+    <div class="profile-field">
+      <label>一句话签名</label>
+      <input id="profile-bio" type="text" maxlength="40" placeholder="例如：白天搬砖，夜里漫游">
+    </div>
+    <div class="profile-field">
+      <label>最想去的城市</label>
+      <input id="profile-city" type="text" maxlength="10" placeholder="例如：大理、拉萨、成都">
+    </div>
+    <div class="profile-field">
+      <label>夜游心情</label>
+      <div class="profile-moods" id="profile-moods">
+        <button class="pmood" data-m="😄">😄</button>
+        <button class="pmood" data-m="🙂">🙂</button>
+        <button class="pmood" data-m="😐">😐</button>
+        <button class="pmood" data-m="😔">😔</button>
+        <button class="pmood" data-m="🌙">🌙</button>
+      </div>
+    </div>
+    <div class="profile-stats" id="profile-stats"></div>
+    <div class="modal-actions">
+      <button class="btn-ghost" id="profile-close">关闭</button>
+      <button class="btn-gold" id="profile-save">保存档案</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" hidden></div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
