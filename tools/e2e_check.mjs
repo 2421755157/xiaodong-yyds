@@ -157,7 +157,14 @@ function check(name, ok, detail = '') {
   // 0) 首屏加载策略守门
   // three.js gzip 就有 257KB，必须只在「进入 3D 漫游」时才下，否则看一张卡片也要等它。
   // 这里同时守住"静态依赖"和"下载时序"两个层面，防止以后又被顺手 import 回首屏。
-  const staticDeps = await cdp.eval(`fetch('/js/app.js').then(r => r.text()).then(t => {
+  // 注意路径要用相对页面 URL 的 './js/app.js'：
+  // 本地服务在根路径，线上在 /xiaodong-yyds/ 子路径。
+  // 写死 '/js/app.js' 在线上会 404，而 404 返回的是 HTML ——
+  // 正则一条都不匹配，断言反而"通过"（假阳性）。所以必须显式检查 r.ok。
+  const staticDeps = await cdp.eval(`fetch('./js/app.js').then(r => {
+    if (!r.ok) throw new Error('fetch app.js → HTTP ' + r.status);
+    return r.text();
+  }).then(t => {
     const bad = [];
     if (/from\\s+['"]three['"]/.test(t)) bad.push('three');
     if (/from\\s+['"]three\\/addons/.test(t)) bad.push('three/addons');
@@ -165,7 +172,7 @@ function check(name, ok, detail = '') {
     if (/from\\s+['"]\\.\\/roam\\.js['"]/.test(t)) bad.push('roam.js');
     if (/from\\s+['"]\\.\\/panorama\\.js['"]/.test(t)) bad.push('panorama.js');
     return bad.join(',');
-  })`);
+  }).catch(e => 'ERROR:' + e.message)`);
   check('首屏不静态依赖 3D 运行时', staticDeps === '', staticDeps || '干净');
 
   const metaLoaded = await cdp.eval(
