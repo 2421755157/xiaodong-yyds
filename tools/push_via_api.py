@@ -75,15 +75,24 @@ def main():
     files = subprocess.run(['git', 'diff', '--name-only', _rt, head], cwd=ROOT,
                            capture_output=True, text=True).stdout.split()
     if not files:
-        # 退化：远端 tree 与本地 HEAD tree 相同 → 用远端 tree 的文件列表逐个比对
+        # 上面那条 diff 在「远端的 tree 对象不在本地对象库」时会**静默返回空**
+        # （不是报错，是直接给空列表），于是会提交一个空 tree → GitHub 422。
+        # 所以这里改为：拉远端完整 tree 拿 blob sha，与本地 ls-tree 的 sha 逐个比。
+        # 只比路径存在与否是不够的——同一路径内容不同也必须推送。
         _rt_full = api('GET', '/repos/%s/git/trees/%s?recursive=1' % (REPO, _rt), pw)
-        _remote_files = {t['path'] for t in _rt_full['tree'] if t['type'] == 'blob'}
-        _local = subprocess.run(['git', 'ls-tree', '-r', '--name-only', head], cwd=ROOT,
-                                capture_output=True, text=True).stdout.split()
-        files = [f for f in _local if f not in _remote_files]
-        for t in _rt_full['tree']:
-            if t['type'] == 'blob' and t['path'] not in set(_local):
-                pass  # 远端多出来的文件 → 本地没有，暂不删（保守）
+        _remote_map = {t['path']: t['sha'] for t in _rt_full['tree'] if t['type'] == 'blob'}
+        # -z：NUL 分隔，避免中文/空格路径被引号转义或按空白切断
+        _raw = subprocess.run(['git', 'ls-tree', '-r', '-z', head], cwd=ROOT,
+                              capture_output=True).stdout.decode('utf-8')
+        files = []
+        for _rec in _raw.split('\0'):
+            if not _rec:
+                continue
+            _meta, _path = _rec.split('\t', 1)
+            _sha = _meta.split()[2]
+            if _remote_map.get(_path) != _sha:
+                files.append(_path)
+        # 远端多出来、本地没有的文件不动（保守，避免误删）
     print('待推送文件 %d 个' % len(files))
 
     msg = subprocess.run(['git', 'log', '-1', '--pretty=%B', head], cwd=ROOT,
@@ -98,12 +107,15 @@ def main():
         if not os.path.exists(p):
             print('  跳过已删除: %s' % f)
             continue
-        # 注意：这里读的是工作区文件（CRLF），而对象库里是 LF。
-        # 于是远端 blob sha 与本地 HEAD 的 blob 不同，tree 对不上——
-        # 表现为"本地与远端长期分叉"，但内容只差行尾，不影响运行。
-        # 曾尝试改用 git cat-file blob 取库内字节，但创建 tree 时 API 返回 422，
-        # 原因未定位，故保留现状（宁可 sha 不一致，也不能让推送不可用）。
-        content = open(p, 'rb').read()
+        # 必须用对象库里的字节，不能拿工作区文件：
+        # core.autocrlf=true 时工作区是 CRLF、库里是 LF，
+        # 上传工作区文件会让 blob sha 与本地 HEAD 不一致，
+        # 于是每次推送都判定"这个文件又变了"，tree 永远对不上。
+        content = subprocess.run(['git', 'cat-file', 'blob', 'HEAD:' + f],
+                                 cwd=ROOT, capture_output=True).stdout
+        if not content:
+            print('  跳过（本地无对象）: %s' % f)
+            continue
         enc = base64.b64encode(content).decode()
         blob = api('POST', '/repos/%s/git/blobs' % REPO, pw, {'content': enc, 'encoding': 'base64'})
         tree_entries.append({'path': f, 'mode': '100644', 'type': 'blob', 'sha': blob['sha']})
