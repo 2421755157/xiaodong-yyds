@@ -326,14 +326,18 @@ function check(name, ok, detail = '') {
   check('全景按钮出现（有全景资源的景点）', panoBtn === true, 'hidden=' + panoBtn);
   if (panoBtn) {
     await cdp.eval("document.getElementById('intro-pano').click()");
-    await sleep(2200);
-    const panoOpen = await cdp.eval("!document.getElementById('pano-overlay').hidden");
+    // 全景浮层是打开的瞬间才由 panorama.js 动态创建，且要现拉 three.js；
+    // 线上（非 localhost）首次加载明显更慢，等 2.2s 会假失败
+    await sleep(4500);
+    const panoOpen = await cdp.eval(
+      "(()=>{const b=document.getElementById('pano-overlay');return !!b && !b.hidden})()");
     check('全景查看器打开', panoOpen === true, 'open=' + panoOpen);
     const canvas = await cdp.eval("!!document.querySelector('#pano-overlay canvas')");
     check('全景 WebGL 画布渲染', canvas === true, 'canvas=' + canvas);
     await cdp.eval("document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}))");
     await sleep(600);
-    const panoClosed = await cdp.eval("document.getElementById('pano-overlay').hidden");
+    const panoClosed = await cdp.eval(
+      "(()=>{const b=document.getElementById('pano-overlay');return !b || b.hidden})()");
     check('全景 ESC 关闭', panoClosed === true, 'hidden=' + panoClosed);
   }
 
