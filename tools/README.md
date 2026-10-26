@@ -19,6 +19,11 @@ tools/
 ├── build-spot-index.mjs   从 js/china-data.js 生成景点/省市索引
 ├── fetch_descriptions.py  抓简介（景点 + 省市）→ spot-desc-db.js / region-desc-db.js
 ├── fetch_images.py        抓照片（主图 / 补充图组）→ data/img_db.json
+├── fetch_baike_api.py     ★ 主通道：百科 openapi 摘要 + 360 图搜照片（无需浏览器）
+├── download_baike_img.py  下载图片到 img/baike/ 并压到 800px（同源托管）
+├── merge_baike.py         把百科图文并入 img_db / desc_db / long_db
+├── baidu_retry.mjs        百科 HTML 通道低频重试（自动拉起/关闭无头浏览器）
+├── fetch_baike.mjs        百科 HTML 通道（需无头浏览器，被风控时不可用）
 ├── export_db.py           导出图片库（去重 + 敏感过滤）→ spot-images-db.js / spot-gallery-db.js
 ├── fetch_long_desc.py    抓历史沿革长介绍 → js/long-db-0..7.js（8 片按需加载）
 ├── fetch_panorama.py     抓真实全景图 → js/panorama-db.js（sphere/wide）
@@ -28,7 +33,7 @@ tools/
 └── e2e_check.mjs         端到端测试（CDP 直连浏览器，20 项交互断言）
 
 data/                     原始缓存（断点续跑用，可直接提交进仓库）
-├── spots_uniq.json        1779 个景点索引
+├── spots_uniq.json        1836 个去重景点索引
 ├── regions_uniq.json      388 个省市索引
 ├── desc_db.json           景点简介原始数据
 ├── region_db.json         省市简介原始数据
