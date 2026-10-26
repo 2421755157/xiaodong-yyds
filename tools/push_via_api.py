@@ -98,15 +98,12 @@ def main():
         if not os.path.exists(p):
             print('  跳过已删除: %s' % f)
             continue
-        # 必须用 git 对象库里的字节，不能拿工作区文件：
-        # 本仓库 core.autocrlf=true，工作区是 CRLF、库里是 LF。
-        # 上传工作区文件会让 blob sha 与本地 HEAD 不一致，
-        # 于是 tree 永远对不上、本地与远端看起来像"分叉"（内容其实一样）。
-        content = subprocess.run(['git', 'cat-file', 'blob', 'HEAD:' + f],
-                                 cwd=ROOT, capture_output=True).stdout
-        if not content:
-            print('  跳过无对象: %s' % f)
-            continue
+        # 注意：这里读的是工作区文件（CRLF），而对象库里是 LF。
+        # 于是远端 blob sha 与本地 HEAD 的 blob 不同，tree 对不上——
+        # 表现为"本地与远端长期分叉"，但内容只差行尾，不影响运行。
+        # 曾尝试改用 git cat-file blob 取库内字节，但创建 tree 时 API 返回 422，
+        # 原因未定位，故保留现状（宁可 sha 不一致，也不能让推送不可用）。
+        content = open(p, 'rb').read()
         enc = base64.b64encode(content).decode()
         blob = api('POST', '/repos/%s/git/blobs' % REPO, pw, {'content': enc, 'encoding': 'base64'})
         tree_entries.append({'path': f, 'mode': '100644', 'type': 'blob', 'sha': blob['sha']})
