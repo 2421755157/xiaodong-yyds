@@ -50,11 +50,24 @@ export function loadPanorama() {
 }
 
 /**
+ * 是否值得空闲预热：3D 运行时合计约 1MB（gzip 约 300KB），
+ * 用户开了「省流量」或者在 2G/3G 上时，这笔下载纯属浪费——
+ * 等他真点进 3D 再下，反正那时也是要下的，只是不再替没兴趣的人预支。
+ * @param {Navigator.connection|null} conn
+ */
+export function shouldWarmUp(conn) {
+  if (!conn) return true;                       // 没有 Network Information API（Safari/Firefox）→ 照常预热
+  if (conn.saveData) return false;              // 用户明确要求省流量
+  return !/^(slow-)?2g$|^3g$/.test(conn.effectiveType || '');
+}
+
+/**
  * 空闲时段预热 3D 运行时。
  * 首屏渲染完之后调用：既不吃关键路径，又能让「进入 3D 漫游」点下去立刻有反应。
  * 用 requestIdleCallback（Safari 不支持则退回 setTimeout）。
  */
 export function warmUpThree(delay = 1200) {
+  if (!shouldWarmUp(navigator.connection)) return;
   const idle = window.requestIdleCallback || (fn => setTimeout(fn, delay));
   idle(() => { loadThreeRuntime().catch(() => {}); }, { timeout: 4000 });
 }

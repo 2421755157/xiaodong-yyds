@@ -16,6 +16,7 @@ import * as sm from '../js/staticmap.js';
 import * as sv from '../js/streetview.js';
 import * as si from '../js/spot-images.js';
 import * as meta from '../js/scenes-meta.js';
+import * as tl from '../js/three-loader.js';
 
 let passed = 0, failed = 0;
 const skipped = 0;   // 预留：将来有条件跳过的用例
@@ -305,8 +306,26 @@ await test('getSpotImages: count 大于可用图片时补占位图', () => {
   assert.equal(imgs.length, 5);
 });
 
-// ─────────────────────────── 汇总 ───────────────────────────
-// 注意：不要写 '\n通过 %d，失败 %d' % (...) ——
+// ── 3D 预热的网络条件判断 ──
+// 3D 运行时约 1MB，不该替「开了省流量 / 在 2G3G 上」的用户预支这笔流量
+await test('3D 预热: 省流量模式下不预热', () => {
+  assert.equal(tl.shouldWarmUp({ saveData: true, effectiveType: '4g' }), false);
+});
+await test('3D 预热: 2G/3G 不预热', () => {
+  for (const t of ['slow-2g', '2g', '3g']) {
+    assert.equal(tl.shouldWarmUp({ effectiveType: t }), false, t + ' 不该预热');
+  }
+});
+await test('3D 预热: 4G 且未省流量照常预热', () => {
+  assert.equal(tl.shouldWarmUp({ saveData: false, effectiveType: '4g' }), true);
+});
+await test('3D 预热: 无 Network Information API 时默认预热', () => {
+  assert.equal(tl.shouldWarmUp(null), true);
+  assert.equal(tl.shouldWarmUp(undefined), true);
+  assert.equal(tl.shouldWarmUp({}), true);
+});
+
+// ─────────────────────────── 汇总 ───────────────────────────// 注意：不要写 '\n通过 %d，失败 %d' % (...) ——
 // 全角逗号会让 util.format 把 %d 当字面量，整行输出成 NaN。
 console.log('\n通过 ' + passed + '，失败 ' + failed + '，跳过 ' + skipped);
 process.exitCode = failed ? 1 : 0;

@@ -210,6 +210,12 @@ function check(name, ok, detail = '') {
   const stats = await cdp.eval("document.querySelectorAll('#hero-stats .stat-cell').length");
   check('首页数据条渲染', stats >= 4, stats + ' 项');
 
+  // 2a) 数字必须是构建期算好的真实值（改成 HOME_STATS 后不许再出现"加载中…"）
+  const statText = await cdp.eval(
+    "[...document.querySelectorAll('#hero-stats .stat-cell b')].map(b => b.textContent).join(' | ')");
+  check('首页数据条为确定数字', statText.length > 0 && !/加载中/.test(statText),
+    statText);
+
   // 2b) 省卡封面：必须铺上真实照片并真的解码出来。
   //     只断言"有 img 元素"不够——图片 404 时它照样在，只是空白。
   //     视口外的卡片是 loading=lazy，不会立刻解码，所以按"已解码张数"判定。
@@ -238,6 +244,26 @@ function check(name, ok, detail = '') {
   check('省卡封面是真实照片',
     provCov.total >= 30 && provCov.local >= 30 && provCov.decoded >= 4 && probeOk,
     `${provCov.decoded}/${provCov.total} 已解码，${provCov.local} 张本地图，请求状态 ${provCov.probe.join('/')}`);
+
+  // 2c) 键盘可达性：卡片是 div，必须显式给 role/tabindex，否则 Tab 直接跳过整个网格
+  const kbRaw = await cdp.eval(`(async () => {
+    const c = document.querySelector('.spot-card');
+    c.focus();
+    const focused = document.activeElement === c;
+    const role = c.getAttribute('role');
+    const tab = c.tabIndex;
+    c.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await new Promise(r => setTimeout(r, 1000));
+    const crumb = ((document.querySelector('#breadcrumb') || {}).textContent || '').trim();
+    const back = document.querySelector('#breadcrumb a[data-go="prov"]');
+    if (back) back.click();
+    await new Promise(r => setTimeout(r, 900));
+    return JSON.stringify({ focused, role, tab, crumb });
+  })()`);
+  const kb = JSON.parse(kbRaw);
+  check('卡片可键盘操作（Enter 进入下一层）',
+    kb.focused && kb.role === 'button' && kb.tab === 0 && kb.crumb.includes('›'),
+    `focus=${kb.focused} role=${kb.role} tab=${kb.tab} 面包屑="${kb.crumb}"`);
 
   // 3) 省卡 → 城市列表（直辖市只有 1 个市属正常，故只断言 >0）
   await cdp.eval("document.querySelector('.spot-card').click()");
@@ -383,8 +409,13 @@ function check(name, ok, detail = '') {
   await cdp.eval("document.getElementById('intro-x').click()");
   await sleep(300);
   await cdp.eval("const i=document.getElementById('search-input'); i.value='太湖'; i.dispatchEvent(new Event('input',{bubbles:true}))");
-  await sleep(900);
-  const sres = await cdp.eval("document.querySelectorAll('#search-results .sr-item').length");
+  // 搜索是防抖 + 异步查库，固定睡 900ms 会随机器负载偶发落空 → 改成轮询
+  let sres = 0;
+  for (let i = 0; i < 14; i++) {
+    sres = await cdp.eval("document.querySelectorAll('#search-results .sr-item').length");
+    if (sres > 0) break;
+    await sleep(250);
+  }
   check('搜索实时出结果', sres > 0, sres + ' 条');
   const chips = await cdp.eval("document.querySelectorAll('#search-results .sr-chip').length");
   check('搜索筛选条渲染', chips === 4, chips + ' 个筛选按钮');

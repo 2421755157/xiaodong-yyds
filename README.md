@@ -231,6 +231,7 @@ python tools/build_covers.py               # 生成省市卡片封面 → js/cov
 python tools/fetch_descriptions.py          # 补真实简介（景点 + 省市）
 python tools/fetch_images.py --mode gallery --limit 500   # 补景点照片（Wikimedia，备用）
 python tools/export_db.py                   # 导出前端静态库
+node   tools/build_home_stats.mjs            # 生成首页统计常量（导出之后跑，顺序不能反）
 python tools/fetch_long_desc.py              # 导出历史沿革长介绍（分 8 片）
 python tools/fetch_panorama.py               # 抓真实全景图（球面/宽幅）
 python tools/fetch_coords.py                 # 抓景点坐标（维基 + Wikidata，无需密钥）

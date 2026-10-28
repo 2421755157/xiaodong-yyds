@@ -2,23 +2,23 @@
 // 生成：tools/build_covers.py → 图片在 img/cover/ 与 img/baike/ 下同源托管
 // 缺项时前端回退到原渐变底色，不会出现破图
 export const PROV_COVER = {
-"北京": "img/cover/692e92669c0ca340.jpg",
-"天津": "img/cover/b8b75a5f9109919f.jpg",
 "上海": "img/cover/e94e8bd35fc8144f.jpg",
 "重庆": "img/cover/78b0d703c7cf1eba.jpg",
-"河北": "img/cover/81a26b596c7dfb7f.jpg",
 "山西": "img/cover/5fc6a6a505f1bd9e.jpg",
+"河北": "img/cover/81a26b596c7dfb7f.jpg",
 "内蒙古": "img/cover/473f5205996e3120.jpg",
 "辽宁": "img/cover/8ff1bf5f2845959d.jpg",
-"吉林": "img/cover/4013c127fd249166.jpg",
 "黑龙江": "img/cover/997cf4dda2cb32cb.jpg",
-"江苏": "img/cover/2428ebeae76e0e6d.jpg",
-"浙江": "img/cover/a44dc3df64a7c949.jpg",
+"天津": "img/cover/b8b75a5f9109919f.jpg",
+"吉林": "img/cover/4013c127fd249166.jpg",
+"北京": "img/cover/692e92669c0ca340.jpg",
 "安徽": "img/cover/e934f16de68fd7fe.jpg",
-"福建": "img/cover/e6e57f07500acee0.jpg",
+"浙江": "img/cover/a44dc3df64a7c949.jpg",
+"江苏": "img/cover/2428ebeae76e0e6d.jpg",
 "江西": "img/cover/8dc3be078e1f6386.jpg",
-"山东": "img/cover/2af719594eafd89d.jpg",
+"福建": "img/cover/e6e57f07500acee0.jpg",
 "台湾": "img/cover/f06972a5060fda8d.jpg",
+"山东": "img/cover/2af719594eafd89d.jpg",
 "河南": "img/cover/8f589d724e821317.jpg",
 "湖北": "img/cover/00ed76e787952058.jpg",
 "湖南": "img/cover/51ee36ed09f29697.jpg",
@@ -26,16 +26,16 @@ export const PROV_COVER = {
 "广西": "img/cover/6dfffe72de0c865f.jpg",
 "海南": "img/cover/78f76e6a5e3b7c30.jpg",
 "四川": "img/cover/92ffc584a4d676a2.jpg",
+"云南": "img/cover/4fc866721e98ff56.jpg",
 "贵州": "img/cover/eed44d2730a1b1f8.jpg",
 "西藏": "img/cover/4fed9f8c4be074d4.jpg",
 "陕西": "img/cover/802940557ea31a5d.jpg",
 "甘肃": "img/cover/723d95b5b833a50f.jpg",
-"青海": "img/cover/f11415678c840ecc.jpg",
 "宁夏": "img/cover/df965049602270cf.jpg",
 "新疆": "img/cover/045243fc85b79939.jpg",
 "香港": "img/cover/aa8f3faa64ff47b0.jpg",
 "澳门": "img/cover/18246a6be53aa670.jpg",
-"云南": "img/cover/4fc866721e98ff56.jpg"
+"青海": "img/cover/f11415678c840ecc.jpg"
 };
 
 export const CITY_COVER = {

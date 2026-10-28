@@ -117,6 +117,14 @@ input,textarea{font-family:inherit;color:var(--ink)}
 .spot-card:nth-child(4){animation-delay:.24s}
 .spot-card:hover{transform:translateY(-6px);border-color:var(--gold-dim);
   box-shadow:0 20px 50px rgba(0,0,0,.5)}
+/* 键盘用户：聚焦时给出和悬停一致的反馈，否则 Tab 过去看不出选中的是哪张 */
+.spot-card:focus-visible{outline:2px solid var(--gold);outline-offset:3px;
+  transform:translateY(-6px);border-color:var(--gold-dim);
+  box-shadow:0 20px 50px rgba(0,0,0,.5)}
+/* 悬停时封面轻微推近，卡片看起来是"活的"（幅度控制在 5%，别抢文字） */
+.spot-cover img{transition:transform .7s cubic-bezier(.2,.7,.3,1)}
+.spot-card:hover .spot-cover img,
+.spot-card:focus-visible .spot-cover img{transform:scale(1.05)}
 .spot-cover{
   height:170px;position:relative;overflow:hidden;
   display:flex;align-items:center;justify-content:center;
@@ -680,4 +688,16 @@ input,textarea{font-family:inherit;color:var(--ink)}
 .map-note{margin-left:auto;font-size:10px;letter-spacing:1px;color:var(--ink-dim)}
 @media (max-width:520px){
   .map-note{margin-left:0;width:100%}
+}
+
+/* ═══ 尊重系统「减少动效」设置 ═══
+   这一层之前缺：卡片入场（rise）、悬停位移、封面推近全都照常播，
+   对开启该选项的用户（前庭功能敏感）是持续的干扰。 */
+@media (prefers-reduced-motion:reduce){
+  .spot-card,.hero,.spot-grid *{animation:none!important}
+  .spot-card{transition:none}
+  .spot-card:hover,.spot-card:focus-visible{transform:none}
+  .spot-cover img{transition:none}
+  .spot-card:hover .spot-cover img,
+  .spot-card:focus-visible .spot-cover img{transform:none}
 }

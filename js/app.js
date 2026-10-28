@@ -12,13 +12,14 @@ import { isMobile } from './env.js';
 import { loadThreeRuntime, loadPanorama, warmUpThree } from './three-loader.js';
 import { analyzeToday, drawMoodCard } from './mood.js';
 import { FORTUNES, greetingFor, SPOT_MEMES, expandDesc, pickN } from './lexicon.js';
-import { getSpotImages, getSpotCover, imageStats, ensureGallery, galleryReady, enrichSpotImages,
+import { getSpotImages, getSpotCover, galleryReady, ensureGallery, enrichSpotImages,
          loadSpotImages, spotImagesReady } from './spot-images.js';
 import { streetViewFor, hasStreetView, POIID_DB } from './streetview.js';
 import { staticMapUrl, hasStaticMap, MAP_VIEWS, mapViewByKey, baiduMapLink } from './staticmap.js';
 import { lazyDB } from './lazy-db.js';
 import { REGION_DESC_DB } from './region-desc-db.js';
 import { PROV_COVER, CITY_COVER } from './cover-db.js';
+import { HOME_STATS } from './home-stats.js';
 
 const $ = s => document.querySelector(s);
 
@@ -147,6 +148,39 @@ function show(id) {
   for (const s of ['#gate', '#home', '#stage']) $(s).hidden = (s !== id);
 }
 
+// ═══ 卡片统一入口（省 / 市 / 景点三层共用）═══
+// 三层列表原来是三份几乎一样的建卡代码，各写各的事件绑定；
+// 收敛到这里之后，键盘可达性只补一次就三层都有。
+//
+// 为什么必须补键盘：卡片是 <div>，浏览器默认不给它 tabindex，
+// Tab 键会直接跳过整个网格 —— 不用鼠标就完全进不去任何一层。
+function addCard(grid, { html, label, onOpen, cover = false, priority = false }) {
+  const card = document.createElement('div');
+  card.className = 'spot-card';
+  card.innerHTML = html;
+  card.setAttribute('role', 'button');
+  card.setAttribute('tabindex', '0');
+  if (label) card.setAttribute('aria-label', label);
+  if (cover) wireCover(card);
+  if (priority) {
+    // 首屏前几张是 LCP 元素，标记为高优先级，别让 lazy 拖慢首屏
+    const img = card.querySelector('.spot-cover img');
+    if (img) {
+      img.loading = 'eager';
+      img.setAttribute('fetchpriority', 'high');
+    }
+  }
+  card.addEventListener('click', onOpen);
+  card.addEventListener('keydown', e => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();      // 空格默认会滚动页面
+      onOpen();
+    }
+  });
+  grid.appendChild(card);
+  return card;
+}
+
 // ═════════ 主页：三级导航 ═════════
 function renderHome() {
   const user = store.data.user;
@@ -161,30 +195,25 @@ function renderHome() {
   renderTimeline();
 }
 
-// ── 首页数据条：真实图片/简介数量（简介库懒加载后就绪后补齐）──
+// ── 首页数据条：数字在构建期算好（tools/build_home_stats.mjs）──
+// 原来这里 load 三个懒加载库再把数字数出来，首屏就白拉约 800KB
+// （图库 118KB + 图组 100KB + 简介库 596KB），而它们真正用得上是在景点层。
 function renderHomeStats(st) {
   const box = $('#hero-stats');
   if (!box) return;
-  const im = imageStats();
-  const paint = (descCount, extraCount) => {
-    box.innerHTML = [
-      ['实景照片', im.total + ' 张'],
-      ['景点专属图', im.c3 + ' 张'],
-      ['多图景点', extraCount ? extraCount + ' 处' : '加载中…'],
-      ['真实简介', descCount ? descCount + ' 条' : '加载中…'],
-      ['覆盖省市', st.provinces + ' 省 / ' + st.cities + ' 市'],
-    ].map(([k, v]) => '<div class="stat-cell"><b>' + v + '</b><span>' + k + '</span></div>').join('');
-  };
-  paint(0, 0);
-  Promise.all([DESC_DB.load(), ensureGallery(), loadSpotImages()]).then(() => {
-    const g = imageStats().galleryCount;
-    paint(Object.keys(DESC_DB.data()).length, g);
-  });
+  const s = HOME_STATS;
+  box.innerHTML = [
+    ['实景照片', s.photos + ' 张'],
+    ['景点专属图', s.exclusive + ' 张'],
+    ['多图景点', s.gallery + ' 处'],
+    ['真实简介', s.desc + ' 条'],
+    ['覆盖省市', st.provinces + ' 省 / ' + st.cities + ' 市'],
+  ].map(([k, v]) => '<div class="stat-cell"><b>' + v + '</b><span>' + k + '</span></div>').join('');
 }
 
 // 面包屑 + 内容区
-// 之所以是 async：景点列表要用真实封面，需等 372KB 的图库就绪。
-// 省/市层用渐变封面，不等 —— 首屏关键路径上没有任何图库开销。
+// 之所以是 async：景点列表要用真实封面，需等图库就绪（约 118KB）。
+// 省/市层用本地封面图，不等 —— 首屏关键路径上没有任何图库开销。
 let navSeq = 0;          // 渲染令牌：async 渲染期间若用户又切了层级，让旧的那次作废
 async function renderNav() {
   const seq = ++navSeq;
@@ -206,58 +235,68 @@ async function renderNav() {
   if (nav.level !== 'prov') crumbs.push(' › <a data-go="prov">' + nav.prov.n + '</a>');
   if (nav.level === 'spot') crumbs.push(' › <a data-go="city">' + nav.city.n + '</a>');
   bc.innerHTML = crumbs.join('');
-  bc.querySelectorAll('a').forEach(a => a.addEventListener('click', () => {
-    const go = a.dataset.go;
-    if (go === 'prov') nav = { level: 'prov' };
-    else if (go === 'city') nav = { level: 'city', prov: nav.prov };
-    renderNav();
-  }));
+  // 面包屑是 <a> 但没有 href（靠 JS 路由），默认不可聚焦 —— 补上键盘入口
+  bc.querySelectorAll('a').forEach(a => {
+    const go = () => {
+      const g = a.dataset.go;
+      if (g === 'prov') nav = { level: 'prov' };
+      else if (g === 'city') nav = { level: 'city', prov: nav.prov };
+      renderNav();
+    };
+    a.setAttribute('role', 'link');
+    a.setAttribute('tabindex', '0');
+    a.addEventListener('click', go);
+    a.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); }
+    });
+  });
 
   grid.innerHTML = '';
 
   if (nav.level === 'prov') {
     // 省份网格
-    for (const p of PROVINCES) {
-      const card = document.createElement('div');
-      card.className = 'spot-card';
-      card.innerHTML =
-        coverHTML(p.cover, p.c, PROV_COVER[p.n]) +
-        '<div class="spot-body"><h4>' + p.n + '</h4><span class="tag">省会 ' + p.cap + '</span>' +
-        '<p>' + tagline(provDesc(p), 40) + '</p><div class="spot-meta"><span>下辖 <b>' + p.cities.length + '</b> 市</span>' +
-        '<span class="spot-enter">进入 →</span></div></div>';
-      wireCover(card);
-      card.addEventListener('click', () => { nav = { level: 'city', prov: p }; renderNav(); });
-      grid.appendChild(card);
-    }
+    PROVINCES.forEach((p, i) => {
+      addCard(grid, {
+        html: coverHTML(p.cover, p.c, PROV_COVER[p.n]) +
+          '<div class="spot-body"><h4>' + p.n + '</h4><span class="tag">省会 ' + p.cap + '</span>' +
+          '<p>' + tagline(provDesc(p), 40) + '</p><div class="spot-meta"><span>下辖 <b>' + p.cities.length + '</b> 市</span>' +
+          '<span class="spot-enter">进入 →</span></div></div>',
+        label: p.n + '，省会 ' + p.cap + '，进入城市列表',
+        cover: true,
+        priority: i < 4,
+        onOpen: () => { nav = { level: 'city', prov: p }; renderNav(); },
+      });
+    });
   } else if (nav.level === 'city') {
     // 城市网格
     $('#hero-line').innerHTML = tagline(provDesc(nav.prov), 44) + '<br><span style="font-size:14px;color:var(--ink-dim)">' + nav.prov.n + ' · ' + nav.prov.cities.length + ' 市</span>';
-    for (const c of nav.prov.cities) {
-      const card = document.createElement('div');
-      card.className = 'spot-card';
-      const spotsN = c.spots.length;
-      card.innerHTML =
-        coverHTML(c.cover, c.n.charAt(0), CITY_COVER[nav.prov.n + '|' + c.n]) +
-        '<div class="spot-body"><h4>' + c.n + '</h4><span class="tag">' + nav.prov.n + '</span>' +
-        '<p>' + tagline(cityDesc(nav.prov, c), 40) + '</p><div class="spot-meta"><span><b>' + spotsN + '</b> 处风景</span>' +
-        '<span class="spot-enter">查看 →</span></div></div>';
-      wireCover(card);
-      card.addEventListener('click', () => { nav = { level: 'spot', prov: nav.prov, city: c }; renderNav(); });
-      grid.appendChild(card);
-    }
+    nav.prov.cities.forEach((c, i) => {
+      addCard(grid, {
+        html: coverHTML(c.cover, c.n.charAt(0), CITY_COVER[nav.prov.n + '|' + c.n]) +
+          '<div class="spot-body"><h4>' + c.n + '</h4><span class="tag">' + nav.prov.n + '</span>' +
+          '<p>' + tagline(cityDesc(nav.prov, c), 40) + '</p><div class="spot-meta"><span><b>' + c.spots.length + '</b> 处风景</span>' +
+          '<span class="spot-enter">查看 →</span></div></div>',
+        label: c.n + '，' + c.spots.length + ' 处风景，查看景点',
+        cover: true,
+        priority: i < 4,
+        onOpen: () => { nav = { level: 'spot', prov: nav.prov, city: c }; renderNav(); },
+      });
+    });
   } else {
     // 景点列表
     $('#hero-line').innerHTML = tagline(cityDesc(nav.prov, nav.city), 44) + '<br><span style="font-size:14px;color:var(--ink-dim)">' + nav.prov.n + ' ' + nav.city.n + ' · ' + nav.city.spots.length + ' 处风景</span>';
-    for (const s of nav.city.spots) {
+    nav.city.spots.forEach((s, i) => {
       const typeInfo = SPOT_TYPE[s.t] || SPOT_TYPE.park;
       const isPro = PRO_SCENES[nav.city.n + '|' + s.n];
-      const card = document.createElement('div');
-      card.className = 'spot-card';
-      card.innerHTML =
-        '<div class="spot-cover"><img alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-img="' + encodeURIComponent(s.n) + '"><span class="cover-glyph">' + s.n.charAt(0) + '</span></div>' +
-        '<div class="spot-body"><h4>' + s.n + '</h4><span class="tag">' + typeInfo.label + (isPro ? ' · 精游' : '') + '</span>' +
-        '<p>' + shortDesc(s) + '</p><div class="spot-meta"><span>' + nav.city.n + '</span>' +
-        '<span class="spot-enter">详情 →</span></div></div>';
+      const card = addCard(grid, {
+        html: '<div class="spot-cover"><img alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-img="' + encodeURIComponent(s.n) + '"><span class="cover-glyph">' + s.n.charAt(0) + '</span></div>' +
+          '<div class="spot-body"><h4>' + s.n + '</h4><span class="tag">' + typeInfo.label + (isPro ? ' · 精游' : '') + '</span>' +
+          '<p>' + shortDesc(s) + '</p><div class="spot-meta"><span>' + nav.city.n + '</span>' +
+          '<span class="spot-enter">详情 →</span></div></div>',
+        label: s.n + '，查看详情',
+        priority: i < 4,
+        onOpen: () => openSpot(nav.prov, nav.city, s),
+      });
       const img = card.querySelector('img');
       markLoading(img);
       const custom = store.getCover(nav.prov.n + nav.city.n + s.n) || store.getCover(nav.city.n + s.n);
@@ -266,9 +305,8 @@ async function renderNav() {
       img.src = coverUrl;
       robustImg(img, () => { img.style.display = 'none'; });
       img.addEventListener('load', () => { img.style.display = 'block'; card.querySelector('.cover-glyph').style.display = 'none'; });
-      card.addEventListener('click', () => openSpot(nav.prov, nav.city, s));
-      grid.appendChild(card);
-    }
+      if (i < 4) { img.loading = 'eager'; img.setAttribute('fetchpriority', 'high'); }
+    });
   }
   syncHash();
   // 简介库异步就绪后，用真实简介重绘一次卡片（只重绘一次，避免循环）
@@ -876,15 +914,21 @@ async function openSpot(prov, city, spot) {
       buildGallery();
     });
   }
-  // 点击图集进入灯箱大图（支持左右键切换、ESC 关闭）；占位图不可点
-  galImgs.forEach(img => {
-    const fig = img.parentElement;
-    fig.addEventListener('click', () => {
-      if (!img.src || img.src.startsWith('data:')) return;
-      openLightbox(galImgs.filter(x => x.src && !x.src.startsWith('data:')).map(x => x.src),
-                   galImgs.filter(x => x.src && !x.src.startsWith('data:')).indexOf(img));
+  // 点击图集进入灯箱大图（支持左右键切换、ESC 关闭）；占位图不可点。
+  // 必须用事件委托挂在容器上：图集库就绪后 buildGallery() 会重建整个 DOM，
+  // 逐个绑在旧 <img> 上的监听会随之消失，点新图就没反应。
+  // （这个坑以前被"首页预加载图集库"掩盖了，改成按需加载后才暴露出来）
+  if (!gal.dataset.zoomBound) {
+    gal.dataset.zoomBound = '1';
+    gal.addEventListener('click', e => {
+      const fig = e.target.closest ? e.target.closest('figure') : null;
+      if (!fig || !gal.contains(fig) || fig.classList.contains('no-zoom')) return;
+      const imgs = [...gal.querySelectorAll('figure:not(.no-zoom) img')]
+        .filter(i => i.src && !i.src.startsWith('data:'));
+      const idx = imgs.indexOf(fig.querySelector('img'));
+      if (idx >= 0) openLightbox(imgs.map(i => i.src), idx);
     });
-  });
+  }
   // 异步补搜：拿到更精准的实景图后替换（含地区泛图升级）
   enrichSpotImages(spot.n, prov.n, spot.t, 3).then(urls => {
     urls.slice(0, 3).forEach((u, i) => { if (galImgs[i] && u && !u.startsWith('data:')) paintSlot(i, u); });

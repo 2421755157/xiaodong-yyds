@@ -26,6 +26,7 @@ tools/
 ├── fetch_baike.mjs        百科 HTML 通道（需无头浏览器，被风控时不可用）
 ├── build_covers.py        生成省市卡片封面库 → js/cover-db.js（34 省地标 + 354 城实景）
 ├── export_db.py           导出图片库（去重 + 敏感过滤）→ spot-images-db.js / spot-gallery-db.js
+├── build_home_stats.mjs   导出首页统计常量（省得首屏为 4 个数字拉 800KB 的库）
 ├── fetch_long_desc.py    抓历史沿革长介绍 → js/long-db-0..7.js（8 片按需加载）
 ├── fetch_panorama.py     抓真实全景图 → js/panorama-db.js（sphere/wide）
 ├── fetch_coords.py       抓景点坐标 → js/coords-db.js（维基 + Wikidata，无需密钥）

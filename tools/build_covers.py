@@ -39,7 +39,7 @@ PROV_ONLY = '--prov-only' in sys.argv
 UA = ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
       '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
 IMG_API = 'https://image.so.com/j'
-MAXW, QUALITY = 1000, 82
+MAXW, QUALITY = 720, 78   # 卡片封面只有 ~330px 宽（2x 屏 660px），1000px 是纯浪费
 
 try:
     from PIL import Image

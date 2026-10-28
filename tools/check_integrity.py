@@ -129,6 +129,35 @@ if os.path.exists(cover_path):
 else:
     problems.append('js/cover-db.js 不存在（跑 python tools/build_covers.py 生成）')
 
+# 6) 首页统计是否与导出库一致
+#    HOME_STATS 是构建期算好写死的常量（为了首屏不去拉 800KB 的库），
+#    数据更新后忘了重跑就会一直显示旧数字 —— 这类"不报错但不对"最难发现，必须静态守。
+def js_obj(path, name):
+    s = io.open(path, encoding='utf-8').read()
+    i = s.index(name)
+    return json.loads(s[s.index('{', i):s.rindex('}') + 1])
+
+
+try:
+    hs_src = io.open(os.path.join(JS, 'home-stats.js'), encoding='utf-8').read()
+    m = re.search(r'HOME_STATS\s*=\s*(\{[^}]*\})', hs_src)
+    hs = json.loads(m.group(1)) if m else {}
+    imgs = js_obj(os.path.join(JS, 'spot-images-db.js'), 'SPOT_IMAGES_DB')
+    gal = js_obj(os.path.join(JS, 'spot-gallery-db.js'), 'SPOT_GALLERY_DB')
+    desc = js_obj(os.path.join(JS, 'spot-desc-db.js'), 'SPOT_DESC_DB')
+    actual = {
+        'photos': len(imgs),
+        'exclusive': len([1 for v in imgs.values() if v[1] >= 3]),
+        'gallery': len(gal),
+        'desc': len(desc),
+    }
+    for k, v in actual.items():
+        if hs.get(k) != v:
+            problems.append('home-stats.js: %s 过期（写死 %s，实际 %s）→ node tools/build_home_stats.mjs'
+                            % (k, hs.get(k), v))
+except Exception as e:
+    problems.append('home-stats.js: 解析失败（%s）' % e)
+
 print('检查完成：%d 个问题' % len(problems))
 for p in problems:
     print('  ✗', p)
