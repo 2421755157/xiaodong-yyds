@@ -61,11 +61,6 @@ function loadCache() {
   }
   return cacheMemo;
 }
-function saveCache(c) {
-  cacheMemo = c;
-  try { localStorage.setItem(CACHE_KEY, JSON.stringify(c)); } catch (e) { /* 满了静默 */ }
-}
-
 // 运行期拿到的 URL 统一规整：
 //   · wikimedia / bcebos 在国内不可达或有防盗链 → 直接丢弃
 //   · 360 CDN 的原图换成 /dr/720_720_/ 缩放地址（原图常 1.2MB）
@@ -90,96 +85,10 @@ function normImgUrl(u) {
 }
 
 // 过滤明显非风景（地图/标志/扫描件等）
-const BAD_RE = /(?:map|locator|location|logo|banner|collage|diagram|coat_of_arms|emblem|flag|seal|symbol|chart|graph|blank|satellite|aerial|landsat|nasa|sentinel|modis|cadal|siku|text|page|cover|title|index|old_|18[0-9]{2}|19[0-9]{2}|panoramio_id)/i;
-// 涉独/分裂类图像：构建期与运行期统一拦截
-const SENSITIVE_BLOCK = ['台独', '台獨', '台湾独立', '台灣獨立', '独立旗帜', '獨立旗幟',
-  '港独', '港獨', '藏独', '藏獨', '疆独', '疆獨', '反分裂', '分裂国家', '分裂國家', '一中一台'];
-function isBad(url, title) {
-  const s = (url + ' ' + (title || '')).toLowerCase();
-  if (BAD_RE.test(s)) return true;
-  // 涉独/分裂类图像一律不展示（与构建期导出管线保持一致）
-  return SENSITIVE_BLOCK.some(b => s.includes(b));
-}
 
 // 文件名与景点名的相关度：完整包含 100+，最长公共子串 ×4（与构建期同规则）
 // DP 只需要上一行 → 用两个一维数组滚动，比每行 new Array 省掉 O(n) 次分配
 // （原实现每行都 new Array(b.length+1).fill(0)，n 是文件名长度）
-function lcsLen(a, b) {
-  if (!a || !b) return 0;
-  const n = b.length;
-  let prev = new Array(n + 1).fill(0);
-  let cur = new Array(n + 1).fill(0);
-  let best = 0;
-  for (let i = 1; i <= a.length; i++) {
-    cur[0] = 0;
-    for (let j = 1; j <= n; j++) {
-      if (a[i - 1] === b[j - 1]) {
-        const v = prev[j - 1] + 1;
-        cur[j] = v;
-        if (v > best) best = v;
-      } else {
-        cur[j] = 0;
-      }
-    }
-    // 交换两行（比每次 new 分配快得多）
-    const t = prev; prev = cur; cur = t;
-  }
-  return best;
-}
-function relevanceOf(query, title) {
-  const f = decodeURIComponent(String(title || '')).replace(/^File:/i, '').replace(/\.[a-zA-Z]{2,5}$/, '');
-  if (!query) return 0;
-  if (f.includes(query)) return 100 + query.length;
-  const L = lcsLen(query, f);
-  return L >= 2 ? L * 4 : 0;
-}
-
-// ── 运行时 Wikimedia Commons 搜索（CORS 友好，origin=*）──
-// 带超时：网络挂起时不能把详情页的图集一直卡在骨架屏状态
-const FETCH_TIMEOUT = 8000;
-async function searchCommons(query, count = 3, spotName = '') {
-  const url = 'https://commons.wikimedia.org/w/api.php?action=query&format=json' +
-    '&generator=search&gsrsearch=' + encodeURIComponent(query) +
-    '&gsrnamespace=6&gsrlimit=' + (count * 3) +
-    '&prop=imageinfo&iiprop=url|extmetadata&iiurlwidth=960&pilicense=any&origin=*';
-  // AbortController 做超时（fetch 无内置 timeout）
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT);
-  let r;
-  try {
-    r = await fetch(url, {
-      headers: { 'Accept': 'application/json' },
-      signal: ctrl.signal,
-    });
-  } finally {
-    clearTimeout(timer);
-  }
-  if (!r.ok) throw new Error('http ' + r.status);
-  const d = await r.json();
-  const pages = (d.query && d.query.pages) || {};
-  const out = [];
-  for (const k of Object.keys(pages)) {
-    const p = pages[k];
-    const ii = p.imageinfo && p.imageinfo[0];
-    if (!ii || !ii.thumburl) continue;
-    const objName = ii.extmetadata && ii.extmetadata.ObjectName && ii.extmetadata.ObjectName.value;
-    if (isBad(ii.thumburl, objName)) continue;
-    // 相关性门槛：文件名或图片描述里必须能对上景点名
-    // （英文文件名 + 中文描述是 Commons 上中国景点的常态）
-    if (spotName) {
-      const meta = ii.extmetadata || {};
-      const desc = (meta.ImageDescription && meta.ImageDescription.value) || '';
-      const blob = decodeURIComponent(String(p.title || '') + ' ' + desc);
-      const rel = Math.max(relevanceOf(spotName, p.title), relevanceOf(spotName, desc));
-      const nameHit = blob.includes(spotName);
-      if (rel < 8 && !nameHit) continue;
-    }
-    out.push(ii.thumburl);
-    if (out.length >= count) break;
-  }
-  return out;
-}
-
 // ── 同步：封面（卡片 / 3D 详情用）──
 export function getSpotCover(spotName, provName, type) {
   const e = IMAGES_DB.get(spotName);
@@ -240,36 +149,12 @@ export function getSpotImages(spotName, provName, count = 3, type) {
 }
 
 // ── 异步：补搜 / 升级（打开详情时调用）──
-// 返回 Promise<urls[]>；成功则写入缓存并替换地区泛图。
-//
-// 记忆「已尝试过」：同一景点反复打开时不再重复打 Wikimedia。
-// 原来失败会每次重发，用户来回点几个景点就是几十次无用请求。
-const triedSpots = new Set();
+// 返回 Promise<urls[]>。网络补搜已停用（见下），现在只是静态库的直通。
+// ── 运行时补搜：已停用 ──
+// 原来这里会向 commons.wikimedia.org 搜图补足图集。该域名在国内网络不可达，
+// 图不足 3 张的景点每打开一次就挂到 8 秒超时，控制台还留 net::ERR_TIMED_OUT，
+// 用户看到的是"加载半天再降级"——收益为零。静态图组已覆盖 1768/1836，
+// 剩下用占位图（渐变+地名）反而更诚实。函数保留是为了不改调用方。
 export async function enrichSpotImages(spotName, provName, type, count = 3) {
-  const cur = getSpotImages(spotName, provName, count, type);
-  const realCount = cur.filter(u => !u.startsWith('data:')).length;
-  const e = IMAGES_DB.get(spotName);
-  const lowGrade = !e || e[1] <= 1;           // 地区泛图 / 缺失 → 努力精搜
-  if (realCount >= count && !lowGrade) return cur;
-  // 已经试过且没改善 → 不用再试（缓存里已有结果说明试成功了）
-  if (triedSpots.has(spotName)) return cur;
-  triedSpots.add(spotName);
-  try {
-    const q = lowGrade ? (spotName + ' ' + provName) : spotName;
-    const found = await searchCommons(q, count, spotName);
-    if (found.length) {
-      const merged = [];
-      const seen = new Set();
-      if (e) { merged.push(e[0]); seen.add(e[0]); }
-      for (const u of found) {
-        const v = normImgUrl(u);
-        if (v && !seen.has(v)) { seen.add(v); merged.push(v); }
-      }
-      const cache = loadCache();
-      cache[spotName] = merged;
-      saveCache(cache);
-      return getSpotImages(spotName, provName, count, type);
-    }
-  } catch (e) { /* 网络/CORS 失败静默，沿用静态库/占位 */ }
-  return cur;
+  return getSpotImages(spotName, provName, count, type);
 }

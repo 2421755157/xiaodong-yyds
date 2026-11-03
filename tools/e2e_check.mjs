@@ -363,7 +363,8 @@ function check(name, ok, detail = '') {
     return JSON.stringify(imgs.map(i => i.getAttribute('src') || ''));
   })()`);
   const galUrls = JSON.parse(galRaw);
-  const badSrc = galUrls.filter(u => u && !u.startsWith('img/') && !u.includes('/dr/'));
+  // data: 是占位图，属于合法兜底（景点图不足 3 张时），不算违规
+  const badSrc = galUrls.filter(u => u && !u.startsWith('data:') && !u.startsWith('img/') && !u.includes('/dr/'));
   check('图组地址均已缩放/同源', badSrc.length === 0,
     badSrc.length ? badSrc[0].slice(0, 56) : galUrls.length + ' 张合规');
   const decoded = await waitFor(async () => {
