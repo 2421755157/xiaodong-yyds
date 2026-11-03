@@ -194,13 +194,22 @@ def fetch_text(name, city='', prov=''):
 
 # ─── 图片：360 图搜 ───
 
-def fetch_images(name, title, city=''):
+IMG_BAD_HARD = re.compile(r'地图|位置图|路线图|示意图|平面图|logo|标志|旗帜|卫星|'
+                          r'二维码|头像|表情|壁纸下载|图表|行程单')
+
+
+def fetch_images(name, title, city='', relaxed=False):
     """返回候选图 URL 列表（按相关度/构图排序，最多 3 个）
 
     泛名要用城市限定，否则搜出来是别处的东西：
     「铁塔」（开封琉璃砖塔）单独搜回来的是埃菲尔铁塔和澳门电信塔；
     「客天下」（梅州）单独搜回来的多是同名歌曲配图。
     经验值：词条名 ≤4 字基本都会跑偏，此时优先用「城市+名称」去搜。
+
+    relaxed=True 是给"冷门到只有 1~2 张结果"的景点用的兜底：
+    严格档会把这些仅有的候选全否掉（标题带「携程攻略」、竖构图、400px 宽），
+    结果是明明有图却补不上。宽松档只挡明确的非照片（地图/logo/图标），
+    尺寸放宽到 320×240，竖图也收，但要求标题里确实提到这个景点或城市。
     """
     key = title or name
     queries = []
@@ -216,26 +225,43 @@ def fetch_images(name, title, city=''):
     for q in queries:
         url = IMG_API + '?' + urllib.parse.urlencode({'q': q, 'pn': 0, 'rn': 20})
         d = jget(url, referer='https://image.so.com/')
-        items = (d or {}).get('list') or []
-        if len(items) >= 3:
-            break
+        got = (d or {}).get('list') or []
+        # 宽松档取结果最多的一轮，而不是最后一轮
+        if relaxed:
+            if len(got) > len(items):
+                items = got
+        else:
+            items = got
+            if len(items) >= 3:
+                break
 
     scored = []
     for it in items:
         u = (it.get('thumb') or '').strip()
         ttl = (it.get('title') or '').strip()
-        if not u.startswith('http') or IMG_BAD_URL.search(u) or IMG_BAD.search(ttl):
+        bad = IMG_BAD_HARD if relaxed else IMG_BAD
+        if not u.startswith('http') or IMG_BAD_URL.search(u) or bad.search(ttl):
             continue
         try:
             w = int(it.get('width') or 0)
             h = int(it.get('height') or 0)
         except Exception:
             w = h = 0
-        if w and h and (w < 480 or h < 280):
-            continue
+        # 宽松档：至少得是个能看的照片；且标题要提到这个景点或城市，
+        # 否则「XX山」会收到完全不相干的山景（宁可没图，不能错图）
+        if relaxed:
+            if w and h and (w < 320 or h < 220):
+                continue
+            hit = (name and name in ttl) or (city and city in ttl)
+            if not hit:
+                continue
+        else:
+            if w and h and (w < 480 or h < 280):
+                continue
+            ratio = (w / h) if h else 1.5
+            if w and h and not (0.95 <= ratio <= 2.8):
+                continue
         ratio = (w / h) if h else 1.5
-        if w and h and not (0.95 <= ratio <= 2.8):
-            continue
         score = 0.0
         if name and name in ttl:
             score += 4

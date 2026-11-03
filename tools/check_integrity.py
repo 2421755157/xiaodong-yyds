@@ -158,6 +158,31 @@ try:
 except Exception as e:
     problems.append('home-stats.js: 解析失败（%s）' % e)
 
+# 7) 图片外链必须"打得开且不过大"
+#    两个真实踩过的坑：
+#    - wikimedia 域名国内不可达、bcebos 有防盗链 → 详情页图集就是空白格
+#    - 360 CDN 直出 1.2MB 原图 → 一次详情页拉 3MB
+#    这两类在浏览器里都"看着像加载中"，不报错，只能静态守。
+try:
+    dead, big = [], []
+    for name, url in list(imgs.items()) + [(k, u) for k, vs in gal.items() for u in vs]:
+        u = url[0] if isinstance(url, list) else url
+        if not isinstance(u, str) or not u.startswith('http'):
+            continue
+        host = re.sub(r'^https?://([^/]+).*', r'\1', u).lower()
+        if host.endswith('wikimedia.org') or host.endswith('bcebos.com'):
+            dead.append('%s → %s' % (name, host))
+        elif 'qhimgs' in host and '/dr/' not in u:
+            big.append('%s → %s' % (name, u.split('/')[-1]))
+    if dead:
+        problems.append('图片引用了国内不可达域名 %d 处（%s）→ python tools/fix_remote_images.py'
+                        % (len(dead), dead[0]))
+    if big:
+        problems.append('图片还是 CDN 原图未缩放 %d 处（%s）→ python tools/fix_remote_images.py'
+                        % (len(big), big[0]))
+except Exception as e:
+    problems.append('图片外链校验失败（%s）' % e)
+
 print('检查完成：%d 个问题' % len(problems))
 for p in problems:
     print('  ✗', p)

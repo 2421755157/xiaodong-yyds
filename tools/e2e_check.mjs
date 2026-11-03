@@ -13,6 +13,19 @@ const PORT = process.argv[3] || '9222';
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
+// 轮询等待条件成立。固定 sleep 会随机器负载偶发失败（搜索出结果、图片解码
+// 都是"网络快就早、慢就晚"），断言应该等状态而不是猜时间。
+async function waitFor(fn, timeout = 8000, step = 200) {
+  const t0 = Date.now();
+  let last;
+  while (Date.now() - t0 < timeout) {
+    last = await fn();
+    if (last) return last;
+    await sleep(step);
+  }
+  return last;
+}
+
 async function getTarget() {
   // 显式新建一个 target，而不是复用列表里第一个 page。
   // 原因：浏览器实例里可能已有 edge:// 弹窗页、扩展页等，
@@ -333,6 +346,40 @@ function check(name, ok, detail = '') {
   check('图集渲染 3 格', galImgs === 3, galImgs + ' 格');
   const src = await cdp.eval("(document.querySelector('#intro-gallery img')||{}).src || ''");
   check('图集首图为真实图片', src.startsWith('http'), src.slice(0, 58));
+  // 图组以前混着 wikimedia（国内打不开）和 1.2MB 原图，现在必须全是
+  // 可缩放地址或同源本地图
+  const galRaw = await cdp.eval(`(() => {
+    const imgs = [...document.querySelectorAll('#intro-gallery figure img')];
+    return JSON.stringify(imgs.map(i => i.getAttribute('src') || ''));
+  })()`);
+  const galUrls = JSON.parse(galRaw);
+  const badSrc = galUrls.filter(u => u && !u.startsWith('img/') && !u.includes('/dr/'));
+  check('图组地址均已缩放/同源', badSrc.length === 0,
+    badSrc.length ? badSrc[0].slice(0, 56) : galUrls.length + ' 张合规');
+  const decoded = await waitFor(async () => {
+    const n = await cdp.eval(
+      "[...document.querySelectorAll('#intro-gallery figure img')].filter(i=>i.naturalWidth>0).length");
+    return n >= 2 ? n : 0;
+  }, 12000);
+  check('图组图片真实解码', decoded >= 2, decoded + '/3 张已解码');
+
+  // 上一处 / 下一处：详情页里直接翻同城景点
+  const beforeName = await cdp.eval("document.getElementById('intro-name').textContent");
+  const stepVisible = await cdp.eval("!document.getElementById('intro-next').hidden");
+  check('详情页有上一处/下一处', stepVisible === true, 'visible=' + stepVisible);
+  await cdp.eval("document.getElementById('intro-next').click()");
+  const afterName = await waitFor(async () => {
+    const n = await cdp.eval("document.getElementById('intro-name').textContent");
+    return n && n !== beforeName ? n : 0;
+  }, 6000);
+  check('点击下一处切换到同城另一景点', !!afterName,
+    beforeName + ' → ' + (afterName || '(未变)'));
+  await cdp.eval("document.getElementById('intro-prev').click()");
+  const backName = await waitFor(async () => {
+    const n = await cdp.eval("document.getElementById('intro-name').textContent");
+    return n === beforeName ? n : 0;
+  }, 6000);
+  check('点上一处能回到原景点', backName === beforeName, backName || '(未回)');
   const related = await cdp.eval("document.querySelectorAll('#intro-related .rel-item').length");
   check('相关推荐渲染', related >= 1, related + ' 项');
   const srcLink = await cdp.eval("(document.querySelector('#intro-source a')||{}).href || ''");
@@ -496,6 +543,22 @@ function check(name, ok, detail = '') {
   const errsInScene = cdp.logs.filter(l => /error|exception/i.test(l.type));
   check('3D 场景无报错', errsInScene.length === 0, errsInScene.length ? errsInScene.slice(0, 2).map(e => (e.text || '').slice(0, 80)).join(' | ') : '干净');
 
+  // 7c) 场景截图不能顶掉真实封面
+  //     老版本在进入 3D 2.6s 后会把 canvas 截成 400×240 JPEG 存成景点封面，
+  //     于是「故宫」的封面变成一片程序生成的通用地形。等过那个时间点再看存储。
+  await sleep(3200);
+  const autoCover = await cdp.eval(`(() => {
+    const d = JSON.parse(localStorage.getItem('other-side-wuxi-v1') || '{}');
+    const c = d.covers || {};
+    const bad = Object.keys(c).filter(k => String(c[k]).startsWith('data:'));
+    return JSON.stringify({ total: Object.keys(c).length, bad: bad.length });
+  })()`);
+  const ac = JSON.parse(autoCover);
+  check('进入 3D 后不会用场景截图覆盖真实封面', ac.bad === 0,
+    `封面${ac.total}个，截图覆盖${ac.bad}个`);
+  await cdp.eval("document.getElementById('btn-back').click()");
+  await waitFor(async () => (await cdp.eval("document.getElementById('stage').hidden")) === true, 6000);
+
   // 8) 控制台报错
   const errs = cdp.logs.filter(l => /error|exception/i.test(l.type));
   check('无控制台错误', errs.length === 0, errs.length
@@ -519,6 +582,20 @@ function check(name, ok, detail = '') {
   const deep = JSON.parse(deepRaw);
   check('分享链接直达景点', deep.open && deep.title.indexOf('拙政园') >= 0,
     `open=${deep.open} 标题="${deep.title}" hash=${deep.hash}`);
+
+  // 9b) 直达链接的封面必须是真照片
+  //     首次进站时图片库（118KB，懒加载）还没就绪，封面会落到 canvas 占位图
+  //     （src 是 data:image/jpeg;base64）。这条专门守"分享给别人打开看到渐变"。
+  const deepCover = await waitFor(async () => {
+    const r = await cdp.eval(`(() => {
+      const i = document.querySelector('#intro-cover img');
+      if (!i) return '';
+      return i.src.startsWith('data:') ? '' : i.naturalWidth > 0 ? i.src : '';
+    })()`);
+    return r || 0;
+  }, 10000);
+  check('直达链接封面是真实照片', !!deepCover && !String(deepCover).startsWith('data:'),
+    deepCover ? String(deepCover).slice(-52) : '仍是占位图');
 
   console.log('\n通过 ' + results.filter(r => r.ok).length + '/' + results.length);
   const failed = results.filter(r => !r.ok);

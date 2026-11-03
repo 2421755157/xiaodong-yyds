@@ -15,7 +15,8 @@ import json, os, sys
 from collections import Counter
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from common import DATA, JS, base_of, is_blocked, js_export, load_json
+from common import DATA, JS, base_of, is_blocked, js_export, load_json, \
+    is_dead_img, shrink_img
 
 SRC_CONF = {'wikidata': 3, 'wiki': 3, 'kept3': 3, 'kept2': 2, 'commons': 2,
             'wiki-search': 2, 'article': 2, 'region': 1,
@@ -47,6 +48,12 @@ def main():
             if is_blocked(u) or b in seen:
                 cleaned += 1
                 continue
+            # 死链域名直接丢（wikimedia 国内不可达、bcebos 防盗链），
+            # 360 CDN 换成缩放地址（原图 1.2MB → 720px 约 70KB）
+            if is_dead_img(u):
+                cleaned += 1
+                continue
+            u = shrink_img(u)
             seen.add(b)
             ex.append(u)
         if is_blocked(main):

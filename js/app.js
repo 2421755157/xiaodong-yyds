@@ -502,6 +502,19 @@ function onLbKey(e) {
   else if (e.key === 'ArrowLeft') stepLightbox(-1);
   else if (e.key === 'ArrowRight') stepLightbox(1);
 }
+// 详情页里用 ← → 翻同城的上一处/下一处。
+// 灯箱打开时让位——那边方向键是切图，不能同时翻景点。
+function onIntroKey(e) {
+  const m = $('#intro-modal');
+  if (!m || m.hidden) return;
+  const lb = $('#lightbox');
+  if (lb && !lb.hidden) return;
+  const t = e.target;
+  if (t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return;
+  if (e.key === 'ArrowLeft') { e.preventDefault(); $('#intro-prev').click(); }
+  else if (e.key === 'ArrowRight') { e.preventDefault(); $('#intro-next').click(); }
+}
+document.addEventListener('keydown', onIntroKey);
 function openLightbox(urls, idx) {
   lbImgs = (urls || []).filter(u => u && !u.startsWith('data:'));
   if (!lbImgs.length) return;
@@ -745,7 +758,10 @@ async function renderHistory(spot) {
   // 真实史料在前才显得有分量（也避免同一段话出现两遍）。
   const detail = $('#intro-detail');
   if (detail && detail.dataset.tpl === '1') {
+    // 清空文本时必须一起藏起来：这个容器有内边距和左侧竖线，
+    // 留个空壳会在「历史沿革」上方显示成一条 24px 的空框。
     detail.textContent = '';
+    detail.hidden = true;
     detail.dataset.tpl = '';
   }
 }
@@ -846,6 +862,24 @@ async function openSpot(prov, city, spot) {
     }
   }
   const coverImg = coverEl.querySelector('img');
+  // 从分享链接直达景点时，图片库（118KB，懒加载）往往还没就绪，
+  // getSpotCover 就会返回 canvas 占位图，而且此前不会回填 —— 用户看到的是
+  // 一张渐变当封面。这里不阻塞弹窗，库就绪后若还停在这一处就换成真实照片。
+  if (!cover && !spotImagesReady()) {
+    const want = spot.n;
+    loadSpotImages().then(() => {
+      const modal = $('#intro-modal');
+      if (!modal || modal.hidden) return;
+      if ($('#intro-name').textContent !== want) return;   // 已经翻到别的景点了
+      const el = $('#intro-cover');
+      const cur = el.querySelector('img');
+      if (cur && !cur.src.startsWith('data:')) return;     // 已经是真图
+      const real = getSpotCover(spot.n, prov.n, spot.t);
+      if (real && !real.startsWith('data:')) {
+        el.innerHTML = '<img src="' + real + '" alt="' + spot.n + '" referrerpolicy="no-referrer">';
+      }
+    }).catch(() => {});
+  }
   if (coverImg) {
     markLoading(coverImg);
     robustImg(coverImg, () => {
@@ -870,6 +904,7 @@ async function openSpot(prov, city, spot) {
   // 标记 tpl=1：若稍后拿到真实历史长文，会把这段模板文案清掉
   const detailEl = $('#intro-detail');
   detailEl.textContent = expandDesc(spot.n, spot.t, desc);
+  detailEl.hidden = false;
   detailEl.dataset.tpl = '1';
   // 历史沿革长介绍（异步补上，先显示短简介不阻塞）
   renderHistory(spot);
@@ -942,6 +977,7 @@ async function openSpot(prov, city, spot) {
       if (w.extract) {
         const el = $('#intro-detail');
         el.textContent = w.extract + '\n\n' + expandDesc(spot.n, spot.t, spot.d);
+        el.hidden = false;
         el.dataset.tpl = '';   // 含真实摘要，不再当作纯模板文案
       }
     });
@@ -963,6 +999,27 @@ async function openSpot(prov, city, spot) {
   const h = spotHash(prov, city, spot);
   if (location.hash !== h) history.replaceState(null, '', h);
   document.title = spot.n + ' · 夜游神';   // 标签页/历史记录里能认出是哪一处
+  // 同城「上一处 / 下一处」：看完一处顺势往下翻，不用退回列表。
+  // 循环取模，走到头自动回到第一处；同城只有一处时按钮直接隐藏。
+  const siblings = city.spots || [];
+  const curIdx = Math.max(0, siblings.indexOf(spot));
+  const step = d => {
+    if (siblings.length < 2) return;
+    const nxt = siblings[(curIdx + d + siblings.length) % siblings.length];
+    if (!nxt || nxt.n === spot.n) return;
+    openSpot(prov, city, nxt);
+    const card = document.querySelector('#intro-modal .intro-card');
+    if (card) card.scrollTop = 0;          // 新的一处，从开头读
+  };
+  const btnPrev = $('#intro-prev'), btnNext = $('#intro-next');
+  const multi = siblings.length > 1;
+  btnPrev.hidden = btnNext.hidden = !multi;
+  if (multi) {
+    btnPrev.onclick = () => step(-1);
+    btnNext.onclick = () => step(1);
+    btnPrev.setAttribute('aria-label', '上一处：' + siblings[(curIdx - 1 + siblings.length) % siblings.length].n);
+    btnNext.setAttribute('aria-label', '下一处：' + siblings[(curIdx + 1) % siblings.length].n);
+  }
   $('#intro-enter').onclick = () => {
     $('#intro-modal').hidden = true;
     enterSpot(prov, city, spot);
@@ -1088,7 +1145,7 @@ async function enterSpot(prov, city, spot) {
     return;
   }
   activeSpot = { name: spot.n, tag: SPOT_TYPE[spot.t]?.label || '' };
-  activeCtx = { prov: prov.n, city: city.n, spotName: spot.n };
+  activeCtx = { prov: prov.n, city: city.n, spotName: spot.n, spotType: spot.t };
   store.visitSpot(prov.n + '|' + city.n + '|' + spot.n);
 
   const themeKey = resolveTheme(store.getTheme());
@@ -1160,6 +1217,12 @@ function loop() {
 
 function shootCover() {
   try {
+    // 场景是程序实时生成的（页面上也明写着"不代表实景"）。
+    // 早先这里无条件把场景截图存成景点封面，结果「故宫」的封面变成一片
+    // 通用地形灰底，真实照片被顶掉了。现在只在完全没有真实照片时兜底。
+    if (store.getCover(activeCtx.prov + activeCtx.city + activeCtx.spotName)) return;
+    const real = getSpotCover(activeCtx.spotName, activeCtx.prov, activeCtx.spotType);
+    if (real && !real.startsWith('data:')) return;
     const src = $('#scene-canvas');
     const c = document.createElement('canvas');
     c.width = 400; c.height = 240;

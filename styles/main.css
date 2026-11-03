@@ -721,3 +721,28 @@ button:focus-visible,a[href]:focus-visible,[role="button"]:focus-visible{
   outline:2px solid var(--gold);
   outline-offset:2px;
 }
+
+/* 详情页「上一处 / 下一处」：跟在操作区左侧，和「看视频」同排 */
+#intro-prev,#intro-next{font-size:12px;letter-spacing:1px;padding:9px 12px}
+@media (max-width:520px){
+  #intro-prev,#intro-next{padding:9px 10px;font-size:11px}
+}
+
+/* 操作区按钮不换行：窄屏下「进入 3D 漫游 →」会被折成两行，箭头单独占一行很难看 */
+.btn-gold,.btn-ghost{white-space:nowrap}
+
+/* ═══ 小屏详情页操作区 ═══
+   375px 下 6 个按钮挤在一行：左侧换行成 3 排，右侧「进入 3D 漫游」
+   被压成一条竖排文字，而且整块 sticky 底栏高达 180px，把正文盖住了。
+   小屏改成上下两段：左边按钮横排换行，主按钮独占一整行。 */
+@media (max-width:560px){
+  .intro-card .intro-actions{
+    flex-direction:column;align-items:stretch;gap:10px;
+    padding:12px 18px 16px;margin:0 -18px -22px;
+  }
+  .intro-act-left{gap:8px}
+  .intro-card .intro-actions .btn-gold{
+    width:100%;text-align:center;padding:11px 12px;letter-spacing:1px;
+  }
+  #intro-prev,#intro-next,#intro-video,#intro-pick{font-size:11px;padding:8px 10px;letter-spacing:0}
+}

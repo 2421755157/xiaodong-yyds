@@ -136,6 +136,46 @@ def base_of(u):
     return re.sub(r'^\d+px-', '', b).lower()
 
 
+# ── 外链图源治理 ──
+# 死链域名（2026-11 实测）：
+#   *.wikimedia.org  国内网络不可达（thumb/upload 都返回空）
+#   *.bcebos.com     百度 CDN 有防盗链，跨站 <img> 403
+DEAD_IMG_HOSTS = ('wikimedia.org', 'bcebos.com')
+# 360 图搜镜像：支持 /dr/W_H_/ 缩放端点，原图常 1.2MB，缩放后 70KB
+SHRINK_HOSTS = ('qhimgs1.com', 'qhimgs2.com', 'qhimgs3.com',
+                'qhimgs4.com', 'qhimgs5.com', 'qhimgs6.com')
+
+
+def img_host(u):
+    try:
+        return (urllib.parse.urlparse(u).hostname or '').lower()
+    except Exception:
+        return ''
+
+
+def is_dead_img(u):
+    h = img_host(u)
+    return any(h == d or h.endswith('.' + d) for d in DEAD_IMG_HOSTS)
+
+
+def shrink_img(u, w=720):
+    """360 CDN 原图 → 缩放地址；其它域名原样返回
+
+    详情页图集单格在桌面端 ≤340 CSS px，720 足够 2x 屏，
+    再大的原图（1280×960，1.2MB）纯属浪费流量。
+    """
+    h = img_host(u)
+    if not any(h.endswith(s) for s in SHRINK_HOSTS):
+        return u
+    p = urllib.parse.urlparse(u)
+    if '/dr/' in p.path:
+        return u
+    return urllib.parse.urlunparse(
+        (p.scheme, p.netloc, '/dr/%d_%d_%s' % (w, w, p.path),
+         p.params, p.query, ''))
+
+
+
 def save_json(path, obj):
     json.dump(obj, open(path, 'w', encoding='utf-8'), ensure_ascii=False)
 
