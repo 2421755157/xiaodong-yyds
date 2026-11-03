@@ -1912,15 +1912,42 @@ document.addEventListener('dialog:close', e => {
     document.title = '夜游神 · 山河漫游';
   }
 });
+// 解析地址里的「某处景点」（#/省/市/景点）
+// 注意要在 renderHome() 之前取：renderHome 会把 nav 重置到省份级并
+// 通过 syncHash 把地址改写成 #/，事后再读 hash 就读不到了。
+function parseDeepSpot() {
+  const parts = (location.hash || '').replace(/^#\/?/, '').split('/').filter(Boolean)
+    .map(x => { try { return decodeURIComponent(x); } catch (e) { return x; } });
+  if (parts.length < 3) return null;
+  const p = PROVINCES.find(x => x.n === parts[0]);
+  const c = p && p.cities.find(x => x.n === parts[1]);
+  const s = c && c.spots.find(x => x.n === parts[2]);
+  return s ? { prov: p, city: c, spot: s } : null;
+}
+// 渲染到该景点所在层级并弹出详情
+function openDeepSpot(d) {
+  nav = { level: 'spot', prov: d.prov, city: d.city };
+  pendingSpot = d.spot;
+  renderNav();
+  openPendingSpot();
+}
+
+const deep = parseDeepSpot();
 applyLocation();
 renderNav();
 if (store.data.user) {
   renderHome();                     // 内部会把 nav 重置到省份层级
-  if (applyLocation()) {            // 带着分享链接进来时，别被默认定位覆盖
-    renderNav();
-    openPendingSpot();
-  }
+  if (deep) openDeepSpot(deep);     // 带着分享链接进来时，别被默认定位覆盖
   show('#home');
+} else if (deep) {
+  // 分享链接最常见的场景就是发给没来过的人。原来这类访客会先撞上
+  // "怎么称呼你"的欢迎页，根本看不到朋友分享的那处景点。
+  // 这里直接以游客身份进站，称呼之后可以在「我的」里改。
+  store.setUser('旅人');
+  renderHome();
+  openDeepSpot(deep);
+  show('#home');
+  toast('已按链接直达。称呼用的是「旅人」，可在「我的」里修改。', 4000);
 } else { show('#gate'); startGateParticles(); }
 
 // 首屏已经出来了，这时再空闲预热：

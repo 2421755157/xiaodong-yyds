@@ -649,6 +649,29 @@ function check(name, ok, detail = '') {
   check('直达链接封面是真实照片', !!deepCover && !String(deepCover).startsWith('data:'),
     deepCover ? String(deepCover).slice(-52) : '仍是占位图');
 
+  // 9c) 没来过的访客点开分享链接
+  //     最常见的分享场景：对方是全新访客（没有昵称）。原来会先撞上
+  //     "怎么称呼你"的欢迎页，看不到分享的那处景点。
+  await cdp.eval("localStorage.clear()");
+  await cdp.navigate(BASE.replace(/\/$/, '') + '#/' + encodeURIComponent('江苏') + '/'
+    + encodeURIComponent('苏州') + '/' + encodeURIComponent('拙政园'));
+  const guest = await waitFor(async () => {
+    const r = await cdp.eval(`(() => {
+      const m = document.getElementById('intro-modal');
+      if (!m || m.hidden) return '';
+      const gate = document.getElementById('gate');
+      return JSON.stringify({
+        name: (document.getElementById('intro-name') || {}).textContent || '',
+        gate: gate ? !gate.hidden : false,
+        user: (JSON.parse(localStorage.getItem('other-side-wuxi-v1') || '{}').user || ''),
+      });
+    })()`);
+    return r || 0;
+  }, 15000);
+  const g = guest ? JSON.parse(guest) : {};
+  check('新访客点分享链接直接看到景点', g.name === '拙政园' && g.gate === false,
+    `景点="${g.name || ''}" 欢迎页=${g.gate} 称呼="${g.user || ''}"`);
+
   console.log('\n通过 ' + results.filter(r => r.ok).length + '/' + results.length);
   const failed = results.filter(r => !r.ok);
   if (failed.length) {
