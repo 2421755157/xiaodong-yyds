@@ -20,6 +20,7 @@ import { lazyDB } from './lazy-db.js';
 import { REGION_DESC_DB } from './region-desc-db.js';
 import { PROV_COVER, CITY_COVER } from './cover-db.js';
 import { HOME_STATS } from './home-stats.js';
+import { enhanceDialogs } from './dialog.js';
 
 const $ = s => document.querySelector(s);
 
@@ -101,6 +102,8 @@ const MOOD_COLOR = ['', 0x7a9ac9, 0x8fb8c9, 0xb8b8a8, 0xd3b98a, 0xf0c86a];
 
 // 导航状态：{ level: 'prov'|'city'|'spot', prov?, city? }
 let nav = { level: 'prov' };
+// 分享链接里带了景点（#/省/市/景点）时先记下来，等对应层级渲染完再弹详情
+let pendingSpot = null;
 
 function toast(msg, ms = 2600) {
   const t = $('#toast');
@@ -955,6 +958,11 @@ async function openSpot(prov, city, spot) {
   // 视频
   $('#intro-video').href = 'https://search.bilibili.com/all?keyword=' + encodeURIComponent(prov.n + city.n + spot.n);
   $('#intro-modal').hidden = false;
+  // 地址栏同步到具体景点，复制出去就是这一处的直达链接
+  // （用 replaceState，避免触发 hashchange 反过来又开一次弹窗）
+  const h = spotHash(prov, city, spot);
+  if (location.hash !== h) history.replaceState(null, '', h);
+  document.title = spot.n + ' · 夜游神';   // 标签页/历史记录里能认出是哪一处
   $('#intro-enter').onclick = () => {
     $('#intro-modal').hidden = true;
     enterSpot(prov, city, spot);
@@ -1469,6 +1477,12 @@ function bind() {
     const name = $('#gate-name').value.trim() || '无名氏';
     store.setUser(name);
     renderHome();
+    // 分享链接（#/省/市/景点）进来的人还没进过站，renderHome 会把层级重置掉，
+    // 这里再按地址定位一次，免得"点开链接却回到全国列表"
+    if (applyLocation()) {
+      renderNav();
+      openPendingSpot();
+    }
     show('#home');
     toast('欢迎，' + name + '。夜游神已上线，山河等你。');
   };
@@ -1716,12 +1730,19 @@ function leaveSpotSilent() {
 }
 
 // ═══ 路由：hash 同步 + 记忆上次位置 ═══
-// #/江苏      → 江苏省内城市列表
-// #/江苏/无锡  → 无锡景点列表
+// #/江苏        → 江苏省内城市列表
+// #/江苏/无锡   → 无锡景点列表
+// #/江苏/无锡/鼋头渚 → 直接打开这处景点（分享出去能直达）
+function spotHash(prov, city, spot) {
+  return '#/' + [prov.n, city.n, spot.n].map(encodeURIComponent).join('/');
+}
+
 function syncHash() {
   let h = '#/';
-  if (nav.level === 'city' && nav.prov) h = '#/' + nav.prov.n;
-  else if (nav.level === 'spot' && nav.prov && nav.city) h = '#/' + nav.prov.n + '/' + nav.city.n;
+  if (nav.level === 'city' && nav.prov) h = '#/' + encodeURIComponent(nav.prov.n);
+  else if (nav.level === 'spot' && nav.prov && nav.city) {
+    h = '#/' + encodeURIComponent(nav.prov.n) + '/' + encodeURIComponent(nav.city.n);
+  }
   if (location.hash !== h) history.replaceState(null, '', h);
   try {
     localStorage.setItem('nr_last_nav', JSON.stringify({
@@ -1729,14 +1750,34 @@ function syncHash() {
     }));
   } catch (e) { /* 隐私模式忽略 */ }
 }
+
+// 消费 pendingSpot：地址里指定的景点在对应层级渲染完后弹出来
+function openPendingSpot() {
+  if (!pendingSpot || nav.level !== 'spot' || !nav.prov || !nav.city) return;
+  const s = pendingSpot;
+  pendingSpot = null;
+  openSpot(nav.prov, nav.city, s);
+}
+
 function applyLocation() {
   // 1) hash 优先（分享链接可直达）
-  const parts = (location.hash || '').replace(/^#\/?/, '').split('/').filter(Boolean);
+  const raw = (location.hash || '').replace(/^#\/?/, '').split('/').filter(Boolean);
+  const parts = raw.map(x => {
+    try { return decodeURIComponent(x); } catch (e) { return x; }
+  });
   if (parts.length) {
     const p = PROVINCES.find(x => x.n === parts[0]);
     if (p) {
       if (parts.length === 1) { nav = { level: 'city', prov: p }; return true; }
       const c = p.cities.find(x => x.n === parts[1]);
+      if (parts.length >= 3 && c) {
+        const s = c.spots.find(x => x.n === parts[2]);
+        if (s) {
+          nav = { level: 'spot', prov: p, city: c };
+          pendingSpot = s;
+          return true;
+        }
+      }
       nav = c ? { level: 'spot', prov: p, city: c } : { level: 'city', prov: p };
       return true;
     }
@@ -1755,13 +1796,27 @@ function applyLocation() {
   } catch (e) { /* 忽略 */ }
   return false;
 }
-window.addEventListener('hashchange', () => { if (applyLocation()) renderNav(); });
+window.addEventListener('hashchange', () => { if (applyLocation()) { renderNav(); openPendingSpot(); } });
 
 bind();
+enhanceDialogs();          // 8 个弹窗统一补 dialog 语义 / 焦点管理 / Esc（见 dialog.js）
+// 关掉详情弹窗后把地址栏退回城市级（开着详情时地址是 #/省/市/景点）
+document.addEventListener('dialog:close', e => {
+  if (e.detail && e.detail.id === 'intro-modal') {
+    syncHash();
+    document.title = '夜游神 · 山河漫游';
+  }
+});
 applyLocation();
 renderNav();
-if (store.data.user) { renderHome(); show('#home'); }
-else { show('#gate'); startGateParticles(); }
+if (store.data.user) {
+  renderHome();                     // 内部会把 nav 重置到省份层级
+  if (applyLocation()) {            // 带着分享链接进来时，别被默认定位覆盖
+    renderNav();
+    openPendingSpot();
+  }
+  show('#home');
+} else { show('#gate'); startGateParticles(); }
 
 // 首屏已经出来了，这时再空闲预热：
 //  · 景点图库（372KB）—— 用户点进景点列表时通常已就绪，不用干等

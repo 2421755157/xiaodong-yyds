@@ -298,10 +298,35 @@ function check(name, ok, detail = '') {
     `${ir.loaded}/${ir.total} 张 ${ir.sample}px @ ${ir.host}`);
 
   // 5) 景点卡 → 详情弹窗（用户反馈打不开的地方）
+  //    先聚焦卡片再点，模拟键盘用户，顺便记录"打开者"，供后面验证焦点归还
+  const opener = await cdp.eval(`(() => {
+    const c = document.querySelector('.spot-card');
+    c.focus();
+    return c.querySelector('h4').textContent;
+  })()`);
   await cdp.eval("document.querySelector('.spot-card').click()");
   await sleep(2500);
   const modalOpen = await cdp.eval("!document.getElementById('intro-modal').hidden");
   check('点击景点打开详情弹窗', modalOpen === true, 'hidden=' + (await cdp.eval("document.getElementById('intro-modal').hidden")));
+
+  // 5a) 对话框语义 + 焦点进入
+  //     没有这些，读屏软件把弹窗当普通 div，Tab 也还在背后的卡片上走
+  const dlgRaw = await cdp.eval(`(() => {
+    const m = document.getElementById('intro-modal');
+    const a = document.activeElement;
+    return JSON.stringify({
+      role: m.getAttribute('role'),
+      ariaModal: m.getAttribute('aria-modal'),
+      labelled: m.getAttribute('aria-labelledby'),
+      named: !!(m.getAttribute('aria-labelledby') || m.getAttribute('aria-label')),
+      inside: m.contains(a),
+      focus: a ? (a.id || a.className || a.tagName) : '',
+    });
+  })()`);
+  const dlg = JSON.parse(dlgRaw);
+  check('详情弹窗是标准对话框且焦点已进入',
+    dlg.role === 'dialog' && dlg.ariaModal === 'true' && dlg.named && dlg.inside,
+    `role=${dlg.role} aria-modal=${dlg.ariaModal} labelled=${dlg.labelled} 焦点=${dlg.focus}`);
   const desc = await cdp.eval("(document.getElementById('intro-desc')||{}).textContent || ''");
   check('详情有简介文本', desc.length > 8, desc.slice(0, 36) + '…');
   const galImgs = await cdp.eval("document.querySelectorAll('#intro-gallery figure img').length");
@@ -405,9 +430,23 @@ function check(name, ok, detail = '') {
   const lbClosed = await cdp.eval("!document.getElementById('lightbox') || document.getElementById('lightbox').hidden");
   check('灯箱 ESC 关闭', lbClosed === true, 'closed=' + lbClosed);
 
+  // 6b) Esc 关闭详情 + 焦点归还给刚才那张卡片
+  await cdp.eval("document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))");
+  await sleep(500);
+  const escRaw = await cdp.eval(`(() => {
+    const m = document.getElementById('intro-modal');
+    const a = document.activeElement;
+    return JSON.stringify({
+      closed: m.hidden,
+      backTo: a ? (a.querySelector && a.querySelector('h4') ? a.querySelector('h4').textContent : '') : '',
+    });
+  })()`);
+  const esc = JSON.parse(escRaw);
+  check('Esc 关闭详情且焦点归还原卡片',
+    esc.closed === true && esc.backTo === opener,
+    `closed=${esc.closed} 焦点回到="${esc.backTo}" 期望="${opener}"`);
+
   // 7) 搜索
-  await cdp.eval("document.getElementById('intro-x').click()");
-  await sleep(300);
   await cdp.eval("const i=document.getElementById('search-input'); i.value='太湖'; i.dispatchEvent(new Event('input',{bubbles:true}))");
   // 搜索是防抖 + 异步查库，固定睡 900ms 会随机器负载偶发落空 → 改成轮询
   let sres = 0;
@@ -462,6 +501,24 @@ function check(name, ok, detail = '') {
   check('无控制台错误', errs.length === 0, errs.length
     ? errs.slice(0, 3).map(e => (e.text || '').slice(0, 60) + ' @' + (e.url || '').slice(-60)).join(' | ')
     : '干净');
+
+  // 9) 分享链接直达：地址里带景点名，重开页面就该打开这一处
+  //    （放在最后，因为这一步会重新加载整个页面）
+  await cdp.navigate(BASE.replace(/\/$/, '') + '#/' + encodeURIComponent('江苏') + '/'
+    + encodeURIComponent('苏州') + '/' + encodeURIComponent('拙政园'));
+  await sleep(2800);
+  const deepRaw = await cdp.eval(`(() => {
+    const m = document.getElementById('intro-modal');
+    const t = (document.getElementById('intro-name') || {}).textContent || '';
+    return JSON.stringify({
+      open: !!m && !m.hidden,
+      title: t.trim(),
+      hash: location.hash,
+    });
+  })()`);
+  const deep = JSON.parse(deepRaw);
+  check('分享链接直达景点', deep.open && deep.title.indexOf('拙政园') >= 0,
+    `open=${deep.open} 标题="${deep.title}" hash=${deep.hash}`);
 
   console.log('\n通过 ' + results.filter(r => r.ok).length + '/' + results.length);
   const failed = results.filter(r => !r.ok);

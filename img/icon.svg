@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="夜游神">
+  <rect width="32" height="32" rx="7" fill="#0b100f"/>
+  <circle cx="21.2" cy="10.6" r="5.4" fill="#d3b98a"/>
+  <circle cx="18.5" cy="8.9" r="4.7" fill="#0b100f"/>
+  <path d="M1.5 27.5 L9.8 16.2 L17.6 27.5 Z" fill="#8fb8a8" opacity=".92"/>
+  <path d="M12.4 27.5 L20.6 18.4 L30.5 27.5 Z" fill="#5f8478"/>
+  <rect y="27.2" width="32" height="1.6" fill="#d3b98a" opacity=".55"/>
+</svg>

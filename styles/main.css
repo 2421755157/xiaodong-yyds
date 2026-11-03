@@ -1,5 +1,6 @@
 /* ═══════════ 夜游神 · Night Roamer ═══════════ */
 :root{
+  color-scheme:dark;      /* 让原生滚动条/表单控件跟着走深色，否则深底上挂一条浅色滚动条 */
   --bg:#0b100f;
   --bg2:#101816;
   --ink:#e8e2d4;
@@ -302,10 +303,19 @@ input,textarea{font-family:inherit;color:var(--ink)}
 @media (max-width:720px){
   #home{padding:0 18px 40px}
   .gate-title{font-size:38px}
+  .hero{padding:34px 0 30px}
   .hero h2{font-size:24px}
   .gate-form{flex-direction:column;align-items:center}
   #gate-name{width:100%}
-  .head-right{flex-wrap:wrap;justify-content:flex-end}
+  /* 顶栏：原来只给 .head-right 加了 flex-wrap，但它是 flex 子项、宽度不受限，
+     实际会撑出容器把品牌块顶到左边界外，最右边那个按钮还会被裁掉。
+     这里让它整行独占、自己换行，6 个控件全部可见。 */
+  .home-head{flex-wrap:wrap;row-gap:10px}
+  .brand{width:100%}
+  .head-right{width:100%;flex-wrap:wrap;justify-content:flex-start;gap:8px}
+  .head-right .btn-ghost,.head-right .btn-gold{font-size:13px;padding:8px 12px;white-space:nowrap}
+  .user-badge{margin-right:4px}
+  .spot-grid{gap:16px}
 }
 
 /* ═══════════ 景点介绍弹窗 ═══════════ */
@@ -700,4 +710,14 @@ input,textarea{font-family:inherit;color:var(--ink)}
   .spot-cover img{transition:none}
   .spot-card:hover .spot-cover img,
   .spot-card:focus-visible .spot-cover img{transform:none}
+}
+
+/* ═══ 键盘聚焦环 ═══
+   输入框统一设了 outline:none，只靠边框变深一点点来提示焦点，
+   键盘用户几乎看不出当前在哪。这里只对 :focus-visible 补环，
+   鼠标点击不会触发，不影响原本克制的观感。 */
+input:focus-visible,textarea:focus-visible,select:focus-visible,
+button:focus-visible,a[href]:focus-visible,[role="button"]:focus-visible{
+  outline:2px solid var(--gold);
+  outline-offset:2px;
 }

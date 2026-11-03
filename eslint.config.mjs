@@ -13,6 +13,7 @@ export default [
         cancelAnimationFrame: 'readonly', Image: 'readonly', URLSearchParams: 'readonly',
         URL: 'readonly', Blob: 'readonly', FileReader: 'readonly', MutationObserver: 'readonly',
         IntersectionObserver: 'readonly', ResizeObserver: 'readonly', WebSocket: 'readonly',
+        CustomEvent: 'readonly',
         THREE: 'readonly', matchMedia: 'readonly', history: 'readonly',
         alert: 'readonly', confirm: 'readonly', prompt: 'readonly',
         atob: 'readonly', btoa: 'readonly', TextDecoder: 'readonly', TextEncoder: 'readonly',
