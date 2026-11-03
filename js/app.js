@@ -35,6 +35,8 @@ let buildScene = null, Roamer = null;
 const DESC_DB = lazyDB(() => import('./spot-desc-db.js'), m => m.SPOT_DESC_DB);
 const COORD_DB = lazyDB(() => import('./coords-db.js'), m => m.COORD_DB);
 const PANORAMA_DB = lazyDB(() => import('./panorama-db.js'), m => m.PANORAMA_DB);
+// 拼音索引（66KB，只在输入英文时加载），支持 gugong / bdlg 这类输入
+const PINYIN_DB = lazyDB(() => import('./pinyin-db.js'), m => m.PINYIN_DB);
 
 let descDBRepainted = false;
 
@@ -385,6 +387,24 @@ function doSearch() {
     });
     return;
   }
+  // 纯英文输入按拼音匹配：手机上常直接敲拼音，且不确定字怎么写。
+  // 只有英文才加载拼音索引（66KB），中文搜索不受影响。
+  const ascii = /^[a-z\s]+$/i.test(q);
+  if (ascii && !PINYIN_DB.ready()) {
+    PINYIN_DB.load().then(() => {
+      if ($('#search-input').value.trim() === q) doSearch();
+    });
+    return;
+  }
+  const qq = q.toLowerCase().replace(/\s+/g, '');
+  // 全拼前缀/包含，或首字母完全匹配（"gg" 不是 "gugong" 的子串，得单独判）
+  const pyHit = name => {
+    if (!ascii || !qq) return false;
+    const v = PINYIN_DB.get(name);
+    if (!v) return false;
+    const [full, ini] = v.split('|');
+    return full.includes(qq) || ini === qq || (qq.length >= 2 && ini.startsWith(qq));
+  };
   const results = [];
   // 命中上限：超出后跳出整个三层循环（原来只 break 最内层，
   // 外层还会继续扫，白白遍历全省景点）
@@ -392,27 +412,28 @@ function doSearch() {
   outer:
   for (const p of PROVINCES) {
     if (searchProv && p.n !== searchProv) continue;
-    const hitProv = (p.n.includes(q) || p.c.includes(q));
+    const hitProv = (p.n.includes(q) || p.c.includes(q) || pyHit(p.n));
     if (hitProv && searchType !== 'spot' && searchType !== 'city') {
-      results.push({ type: 'prov', prov: p, label: p.n + '（省）', sub: '省会 ' + p.cap + ' · ' + p.cities.length + ' 市' });
+      results.push({ byName: true, type: 'prov', prov: p, label: p.n + '（省）', sub: '省会 ' + p.cap + ' · ' + p.cities.length + ' 市' });
     }
     for (const c of p.cities) {
-      const hitCity = c.n.includes(q);
+      const hitCity = c.n.includes(q) || pyHit(c.n);
       if (hitCity && (searchType === 'all' || searchType === 'city')) {
-        results.push({ type: 'city', prov: p, city: c, label: c.n + '（市）', sub: p.n + ' · ' + c.spots.length + ' 处风景' });
+        results.push({ byName: true, type: 'city', prov: p, city: c, label: c.n + '（市）', sub: p.n + ' · ' + c.spots.length + ' 处风景' });
       }
       if (searchType === 'city' || searchType === 'prov') continue;
       for (const s of c.spots) {
         const d = DESC_DB.get(s.n) || s.d || '';
-        if (s.n.includes(q) || d.includes(q)) {
-          results.push({ type: 'spot', prov: p, city: c, spot: s, label: s.n, sub: p.n + ' ' + c.n, tag: (SPOT_TYPE[s.t] || {}).label, hit: s.n.includes(q) ? s.n : d });
+        const byName = s.n.includes(q) || pyHit(s.n);
+        if (byName || d.includes(q)) {
+          results.push({ byName, type: 'spot', prov: p, city: c, spot: s, label: s.n, sub: p.n + ' ' + c.n, tag: (SPOT_TYPE[s.t] || {}).label, hit: byName ? s.n : d });
           if (results.length >= MAX_HITS) break outer;
         }
       }
     }
   }
-  // 排序：名称直接命中的排最前，其次是简介命中的景点
-  const rank = r => (r.type === 'spot' && r.label.includes(q) ? 0 : r.type === 'spot' ? 1 : r.type === 'city' ? 2 : 3);
+  // 排序：名称（含拼音）命中的排最前，其次是简介命中的景点
+  const rank = r => (r.type === 'spot' && r.byName ? 0 : r.type === 'spot' ? 1 : r.type === 'city' ? 2 : 3);
   results.sort((a, b) => rank(a) - rank(b));
   const shown = results.slice(0, 40);
 
@@ -460,27 +481,8 @@ function bindSearchFilters(box) {
   if (sel) sel.addEventListener('change', () => { searchProv = sel.value; doSearch(); });
 }
 
-// Wikipedia 真实景点图 + 百科摘要（CORS 友好，失败静默）
-// 带超时：网络挂起会让详情页的「详细解说」一直空着
-async function fetchWiki(name) {
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 8000);
-  try {
-    const r = await fetch('https://zh.wikipedia.org/api/rest_v1/page/summary/' + encodeURIComponent(name) + '?redirect=true',
-      { signal: ctrl.signal });
-    if (!r.ok) return {};
-    const j = await r.json();
-    const img = (j.originalimage && j.originalimage.source) || (j.thumbnail && j.thumbnail.source);
-    return { img, extract: j.extract };
-  } catch (e) {
-    return {};
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
 // ═══ 图集灯箱 ═══
-let lbImgs = [], lbIdx = 0;
+let lbImgs = [], lbIdx = 0, lbReturnFocus = null;
 function paintLightbox() {
   const box = $('#lightbox');
   if (!box || !lbImgs.length) return;
@@ -496,6 +498,11 @@ function closeLightbox() {
   const b = $('#lightbox');
   if (b) b.hidden = true;
   document.removeEventListener('keydown', onLbKey);
+  // 关闭后焦点回到打开它的那张图，否则会掉到 <body>，键盘用户得从头 Tab
+  if (lbReturnFocus && document.contains(lbReturnFocus)) {
+    lbReturnFocus.focus({ preventScroll: true });
+  }
+  lbReturnFocus = null;
 }
 function onLbKey(e) {
   if (e.key === 'Escape') closeLightbox();
@@ -525,21 +532,41 @@ function openLightbox(urls, idx) {
     box.id = 'lightbox';
     box.className = 'lightbox';
     box.hidden = true;
+    box.setAttribute('role', 'dialog');
+    box.setAttribute('aria-modal', 'true');
+    box.setAttribute('aria-label', '照片查看');
     box.innerHTML =
       '<button class="lb-close" aria-label="关闭">×</button>' +
       '<button class="lb-nav lb-prev" aria-label="上一张">‹</button>' +
       '<img class="lb-img" alt="" referrerpolicy="no-referrer">' +
       '<button class="lb-nav lb-next" aria-label="下一张">›</button>' +
-      '<div class="lb-count"></div>';
+      '<div class="lb-count" aria-live="polite"></div>';
     document.body.appendChild(box);
     box.addEventListener('click', e => {
       if (e.target === box || e.target.classList.contains('lb-close')) closeLightbox();
       else if (e.target.classList.contains('lb-prev')) stepLightbox(-1);
       else if (e.target.classList.contains('lb-next')) stepLightbox(1);
     });
+    // 手机上没有方向键：加左右滑动切图
+    let touchX = null, touchY = null;
+    box.addEventListener('pointerdown', e => {
+      if (e.pointerType === 'mouse') return;
+      touchX = e.clientX; touchY = e.clientY;
+    });
+    box.addEventListener('pointerup', e => {
+      if (touchX === null || e.pointerType === 'mouse') return;
+      const dx = e.clientX - touchX, dy = e.clientY - touchY;
+      touchX = touchY = null;
+      // 横向位移要明显大于纵向，避免上下滚动时误触发
+      if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy) * 1.3) {
+        stepLightbox(dx < 0 ? 1 : -1);
+      }
+    });
   }
   paintLightbox();
+  lbReturnFocus = document.activeElement;
   box.hidden = false;
+  box.querySelector('.lb-close').focus({ preventScroll: true });   // 键盘/读屏从弹层开始
   document.addEventListener('keydown', onLbKey);
 }
 
@@ -548,8 +575,10 @@ function renderSource(spot) {
   const el = $('#intro-source');
   if (!el) return;
   if (DESC_DB.get(spot.n)) {
-    el.innerHTML = '资料来源：<a href="https://zh.wikipedia.org/wiki/' + encodeURIComponent(spot.n) +
-      '" target="_blank" rel="noopener">中文维基百科 · ' + spot.n + ' 词条</a>';
+    // 指向百度百科而不是维基：zh.wikipedia.org 在国内网络不可达，
+    // 点开就是"无法访问此网站"；而且现在过半简介本来就来自百科。
+    el.innerHTML = '资料来源：<a href="https://baike.baidu.com/item/' + encodeURIComponent(spot.n) +
+      '" target="_blank" rel="noopener">百度百科 · ' + escHtml(spot.n) + ' 词条</a>';
     el.hidden = false;
   } else {
     el.innerHTML = '';
@@ -917,11 +946,23 @@ async function openSpot(prov, city, spot) {
   const caps = ['一隅 · 此景', '二景 · 此处', '三瞥 · 此间'];
   const galImgs = [];
   // 画图集：把某张图放到第 i 格（复用已有 <img> 节点，只换 src，不重建 DOM）
+  // 图片是实景才可点：占位/失败图不该响应点击，也不该出现在 Tab 序列里
+  const syncZoomable = (fig, url) => {
+    const ok = !!url && !url.startsWith('data:');
+    fig.classList.toggle('no-zoom', !ok);
+    if (ok) {
+      fig.setAttribute('role', 'button');
+      fig.setAttribute('tabindex', '0');
+    } else {
+      fig.removeAttribute('role');
+      fig.removeAttribute('tabindex');
+    }
+  };
   const paintSlot = (i, url) => {
     const img = galImgs[i];
     if (!img || !url) return;
     const fig = img.parentElement;
-    fig.className = url.startsWith('data:') ? 'no-zoom' : '';
+    syncZoomable(fig, url);
     img.style.display = '';
     img.setAttribute('data-src', url);
     img.src = url;
@@ -932,9 +973,18 @@ async function openSpot(prov, city, spot) {
     const realImgs = getSpotImages(spot.n, prov.n, 3, spot.t);
     for (let i = 0; i < 3; i++) {
       const fig = document.createElement('figure');
-      if (!realImgs[i] || realImgs[i].startsWith('data:')) fig.className = 'no-zoom';
+      fig.setAttribute('aria-label', '查看大图：' + caps[i]);
+      // 键盘用户也要能打开灯箱：单靠 click 的话 Tab 永远到不了这里。
+      // 是否可点由 syncZoomable() 按当前图片决定（补图后可能从占位变实景）。
+      fig.addEventListener('keydown', e => {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        if (fig.classList.contains('no-zoom')) return;
+        e.preventDefault();
+        fig.click();
+      });
       fig.innerHTML = '<img alt="' + caps[i] + '" loading="lazy" decoding="async" referrerpolicy="no-referrer"><figcaption>' + caps[i] + '</figcaption>';
       gal.appendChild(fig);
+      syncZoomable(fig, realImgs[i]);
       const img = fig.querySelector('img');
       markLoading(img);
       img.setAttribute('data-src', realImgs[i]);
@@ -971,17 +1021,9 @@ async function openSpot(prov, city, spot) {
   enrichSpotImages(spot.n, prov.n, spot.t, 3).then(urls => {
     urls.slice(0, 3).forEach((u, i) => { if (galImgs[i] && u && !u.startsWith('data:')) paintSlot(i, u); });
   });
-  // 异步拉取 Wikipedia 百科摘要（仅静态库缺失时补，避免重复请求）
-  if (!DESC_DB.get(spot.n)) {
-    fetchWiki(spot.n).then(w => {
-      if (w.extract) {
-        const el = $('#intro-detail');
-        el.textContent = w.extract + '\n\n' + expandDesc(spot.n, spot.t, spot.d);
-        el.hidden = false;
-        el.dataset.tpl = '';   // 含真实摘要，不再当作纯模板文案
-      }
-    });
-  }
+  // 这里原本会再向 zh.wikipedia.org 要一次摘要。该域名在国内网络不可达
+  // （请求挂到 8 秒超时才失败，控制台还会留一条网络错误），而本地简介库
+  // 已覆盖 1744/1836，剩下的用 expandDesc 的模板文案就够了 —— 直接去掉。
   // meta
   $('#intro-meta').innerHTML = [
     ['所在', prov.n + ' ' + city.n],

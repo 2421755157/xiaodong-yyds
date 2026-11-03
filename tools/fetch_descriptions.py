@@ -81,6 +81,14 @@ def parse_regions():
 
 def do_spots(limit):
     db = load_json(SPOT_CACHE, {})
+    # 缓存里可能有"标题查到了但正文为空"的记录（早期版本写进去的）。
+    # 这些条目会让断点续跑把它们当成"已完成"永远跳过，而导出又会剔除空值，
+    # 结果就是景点页面永远没有简介。加载时先清掉，让它们重新进入待查队列。
+    empty = [k for k, v in db.items() if not (v and str(v[0] or '').strip())]
+    for k in empty:
+        db.pop(k, None)
+    if empty:
+        print('清理空简介缓存 %d 条（会重新抓）' % len(empty), flush=True)
     spots = load_spots()
     todo = [s for s in spots if s['name'] not in db]
     print('景点简介：已有 %d / %d，本轮待查 %d' % (len(db), len(spots), len(todo)), flush=True)

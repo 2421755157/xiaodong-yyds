@@ -383,7 +383,7 @@ function check(name, ok, detail = '') {
   const related = await cdp.eval("document.querySelectorAll('#intro-related .rel-item').length");
   check('相关推荐渲染', related >= 1, related + ' 项');
   const srcLink = await cdp.eval("(document.querySelector('#intro-source a')||{}).href || ''");
-  check('来源标注链接', srcLink.includes('zh.wikipedia.org'), srcLink ? '有' : '无（该景点无真实简介时隐藏）');
+  check('来源标注链接', srcLink.includes('baike.baidu.com'), srcLink ? '有' : '无（该景点无真实简介时隐藏）');
 
   // 5b) 历史沿革长介绍（分片按需加载）
   await sleep(1200);
@@ -468,14 +468,44 @@ function check(name, ok, detail = '') {
   }
 
   // 6) 灯箱
-  await cdp.eval("document.querySelector('#intro-gallery figure').click()");
+  //    先用键盘打开：图集格子必须是可聚焦按钮，否则 Tab 永远到不了
+  const figA11y = await cdp.eval(`(() => {
+    const f = document.querySelector('#intro-gallery figure:not(.no-zoom)');
+    return f ? (f.getAttribute('role') + '|' + f.getAttribute('tabindex')) : 'none';
+  })()`);
+  check('图集格子可键盘聚焦', figA11y === 'button|0', String(figA11y));
+  await cdp.eval(`(() => {
+    const f = document.querySelector('#intro-gallery figure:not(.no-zoom)');
+    f.focus();
+    f.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  })()`);
   await sleep(700);
   const lb = await cdp.eval("!!document.getElementById('lightbox') && !document.getElementById('lightbox').hidden");
   check('图集灯箱打开', lb === true, 'lb=' + lb);
+  const lbDlg = await cdp.eval(`(() => {
+    const b = document.getElementById('lightbox');
+    return b ? [b.getAttribute('role'), b.getAttribute('aria-modal'),
+                b.contains(document.activeElement)].join('|') : 'none';
+  })()`);
+  check('灯箱是对话框且焦点已移入', lbDlg === 'dialog|true|true', String(lbDlg));
+  // 手机上不能只有左右按钮：横向滑动也要能切图
+  const beforeSwipe = await cdp.eval("document.querySelector('#lightbox .lb-count').textContent");
+  await cdp.eval(`(() => {
+    const b = document.getElementById('lightbox');
+    const fire = (type, x) => b.dispatchEvent(new PointerEvent(type, {
+      pointerType: 'touch', clientX: x, clientY: 300, bubbles: true }));
+    fire('pointerdown', 320); fire('pointerup', 140);
+  })()`);
+  await sleep(300);
+  const afterSwipe = await cdp.eval("document.querySelector('#lightbox .lb-count').textContent");
+  check('灯箱可左右滑动切图', beforeSwipe !== afterSwipe, beforeSwipe + ' → ' + afterSwipe);
   await cdp.eval("document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}))");
   await sleep(400);
   const lbClosed = await cdp.eval("!document.getElementById('lightbox') || document.getElementById('lightbox').hidden");
   check('灯箱 ESC 关闭', lbClosed === true, 'closed=' + lbClosed);
+  const focusBack = await cdp.eval(
+    "(document.activeElement && document.activeElement.closest('#intro-gallery')) ? 'gallery' : 'body'");
+  check('灯箱关闭后焦点回到图集', focusBack === 'gallery', String(focusBack));
 
   // 6b) Esc 关闭详情 + 焦点归还给刚才那张卡片
   await cdp.eval("document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))");
@@ -528,6 +558,28 @@ function check(name, ok, detail = '') {
     return 'none';
   })()`);
   check('搜索可命中简介正文', hitDesc !== 'none' && hitDesc.split(':')[1] > 0, String(hitDesc));
+
+  // 7a2) 拼音搜索：手边没中文输入法/不确定字怎么写时的入口
+  const pyCases = [['gugong', '故宫'], ['bdlg', '布达拉宫']];
+  for (const [kw, want] of pyCases) {
+    const got = await cdp.eval(`(async () => {
+      const i = document.getElementById('search-input');
+      // 先清空，避免读到上一条查询残留的结果
+      i.value = '';
+      i.dispatchEvent(new Event('input', { bubbles: true }));
+      await new Promise(r => setTimeout(r, 250));
+      i.value = ${JSON.stringify(kw)};
+      i.dispatchEvent(new Event('input', { bubbles: true }));
+      for (let n = 0; n < 30; n++) {
+        await new Promise(r => setTimeout(r, 200));
+        const items = [...document.querySelectorAll('#search-results .sr-item b')].map(e => e.textContent);
+        if (items.some(t => t.indexOf(${JSON.stringify(want)}) >= 0)) return items.slice(0, 3).join('|');
+      }
+      return 'none';
+    })()`);
+    check(`拼音搜索「${kw}」`, String(got).includes(want), String(got).slice(0, 40));
+  }
+  await cdp.eval("(()=>{const i=document.getElementById('search-input'); i.value=''; i.dispatchEvent(new Event('input',{bubbles:true}));})()");
 
   // 7b) 进入 3D 漫游：场景画布 + 实景看板
   await cdp.eval("document.getElementById('intro-enter').click()");

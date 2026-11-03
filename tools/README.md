@@ -28,6 +28,8 @@ tools/
 ├── export_db.py           导出图片库（去重 + 敏感过滤 + 死链剔除 + CDN 缩放）→ spot-images-db.js / spot-gallery-db.js
 ├── fix_remote_images.py   修图库：死链主图补本地图、CDN 原图换 720px 缩放地址
 ├── build_home_stats.mjs   导出首页统计常量（省得首屏为 4 个数字拉 800KB 的库）
+├── fill_missing_desc.py   补维基通道没抓到的简介（走百科 openapi + 城市一致性校验）
+├── build_pinyin_db.py     生成拼音索引（gugong / bdlg 这类输入也能搜）
 ├── fetch_long_desc.py    抓历史沿革长介绍 → js/long-db-0..7.js（8 片按需加载）
 ├── fetch_panorama.py     抓真实全景图 → js/panorama-db.js（sphere/wide）
 ├── fetch_coords.py       抓景点坐标 → js/coords-db.js（维基 + Wikidata，无需密钥）

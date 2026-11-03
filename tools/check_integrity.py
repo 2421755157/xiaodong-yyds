@@ -183,6 +183,25 @@ try:
 except Exception as e:
     problems.append('图片外链校验失败（%s）' % e)
 
+# 8) 拼音索引覆盖：新增景点若忘了重跑 build_pinyin_db.py，
+#    拼音搜索会静默搜不到（中文搜索照样正常，所以很难发现）。
+try:
+    py_path = os.path.join(JS, 'pinyin-db.js')
+    if not os.path.exists(py_path):
+        problems.append('js/pinyin-db.js 不存在（跑 python tools/build_pinyin_db.py 生成）')
+    else:
+        py_src = io.open(py_path, encoding='utf-8').read()
+        start = py_src.index('PINYIN_DB')   # 注释里也有花括号，必须从声明之后找
+        py_db = json.loads(py_src[py_src.index('{', start):py_src.rindex('}') + 1])
+        spot_names = {s['name'] for s in json.load(
+            io.open(os.path.join(ROOT, 'data', 'spots_uniq.json'), encoding='utf-8'))}
+        miss = sorted(n for n in spot_names if not py_db.get(n))
+        if len(miss) > len(spot_names) * 0.02:
+            problems.append('拼音索引缺 %d/%d 个景点（如 %s）→ python tools/build_pinyin_db.py'
+                            % (len(miss), len(spot_names), '、'.join(miss[:3])))
+except Exception as e:
+    problems.append('拼音索引校验失败（%s）' % e)
+
 print('检查完成：%d 个问题' % len(problems))
 for p in problems:
     print('  ✗', p)

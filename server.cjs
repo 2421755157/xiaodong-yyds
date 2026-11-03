@@ -23,7 +23,13 @@ http.createServer((req, res) => {
       res.writeHead(404);
       res.end('Not found');
     } else {
-      res.writeHead(200, { 'Content-Type': MIME[path.extname(filePath)] || 'application/octet-stream' });
+      // 本地开发服务器禁用缓存：改了 css/js 刷新就能看到。
+      // 之前没有这个头，浏览器会heuristic缓存，改完样式刷新还是旧的，
+      // 排查时很容易误以为改动没生效（截图/测试都踩过）。
+      res.writeHead(200, {
+        'Content-Type': MIME[path.extname(filePath)] || 'application/octet-stream',
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+      });
       res.end(data);
     }
   });

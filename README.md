@@ -13,7 +13,7 @@
 ## 功能一览
 
 ### 真实景点资料
-- **1892 个景点**中 **1710 个**配有**真实景点简介**（百科摘要 + 维基词条首段，转简体并清洗注音），其余冷门景点回退到内置文案
+- **1892 个景点**中 **1744 个**配有**真实景点简介**（百科摘要 + 维基词条首段，转简体并清洗注音），其余冷门景点回退到内置文案
 - 抓取走**结构化接口**而不是解析网页：百度百科 `openapi/BaikeLemmaCardApi` 取
   `title/key/abstract`，360 图搜 JSON 接口取实景照片。两者都是 JSON，
   页面改版、CSS 混淆都影响不到，也不需要浏览器指纹
@@ -115,6 +115,8 @@
 
 ### 搜索
 - **输入即搜**（防抖 220ms），无需点按钮
+- **支持拼音**：输入 `gugong`、`bdlg`（布达拉宫首字母）也能搜到，
+  索引 2214 条（景点 + 城市 + 省份），66KB 懒加载，只在输入英文时才拉
 - 结果支持按**类型**（景点/城市/省份）与**省份**筛选
 - 命中关键词高亮，名称命中的结果优先
 - 快捷键：`/` 聚焦搜索框、`Esc` 清空或关闭结果
@@ -236,6 +238,8 @@ python tools/merge_baike.py                # 并入 img_db / desc_db / long_db
 python tools/fix_remote_images.py          # 修死链图源 + 把 CDN 原图换成 720px 缩放地址
 python tools/build_covers.py               # 生成省市卡片封面 → js/cover-db.js + img/cover/
 python tools/fetch_descriptions.py          # 补真实简介（景点 + 省市）
+python tools/fill_missing_desc.py            # 维基通道拿不到的，改走百科接口补
+python tools/build_pinyin_db.py              # 生成拼音搜索索引 → js/pinyin-db.js
 python tools/fetch_images.py --mode gallery --limit 500   # 补景点照片（Wikimedia，备用）
 python tools/export_db.py                   # 导出前端静态库
 node   tools/build_home_stats.mjs            # 生成首页统计常量（导出之后跑，顺序不能反）
@@ -279,8 +283,8 @@ node   tools/fetch_baike.mjs --all           # 百科 HTML 通道（需无头浏
 │   ├── streetview.js   # 实景街景（百度全景 / 高德单视角）
 │   ├── config.js       # 密钥 + 百度服务能力（BAIDU_CAPS）
 │   ├── spot-images-db.js   # 景点真实照片静态库（构建期抓取，372KB，按需加载）
-│   ├── spot-desc-db.js     # 景点真实简介库（1164 条，懒加载）
-│   ├── region-desc-db.js   # 省市真实简介库（378 条）
+│   ├── spot-desc-db.js     # 景点真实简介库（1744 条，懒加载）
+│   ├── region-desc-db.js   # 省市真实简介库（380 条）
 │   ├── coords-db.js        # 景点坐标库（773 条，WGS84）
 │   ├── panorama-db.js      # 真实全景图库（102 条）
 │   ├── poiid-db.js         # 百度 POI 检索结果（需开通地点检索后填充）
