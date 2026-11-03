@@ -137,6 +137,9 @@ function check(name, ok, detail = '') {
   await cdp.send('Log.enable');
   await cdp.send('Page.enable');
   await cdp.send('Network.enable');
+  // 关掉缓存。对线上站点跑时必须这样，否则 GitHub Pages 的 max-age=600
+  // 会让浏览器用上一次的旧模块，测出来一堆"回归"，其实只是缓存。
+  await cdp.send('Network.setCacheDisabled', { cacheDisabled: true });
   // 百度静态图要求 Referer 在白名单内（线上是 2421755157.github.io），
   // 本地 localhost 必然被拒 → 注入生产域名的 Referer，才能真实验证静态图能否加载。
   //
@@ -278,9 +281,15 @@ function check(name, ok, detail = '') {
     kb.focused && kb.role === 'button' && kb.tab === 0 && kb.crumb.includes('›'),
     `focus=${kb.focused} role=${kb.role} tab=${kb.tab} 面包屑="${kb.crumb}"`);
 
+  // 地址栏层级（#/省 = 1，#/省/市 = 2）。用它判断"真的进到下一层了"，
+  // 比 sleep 固定毫秒可靠 —— 线上首屏要等图库，固定等待会偶发失败。
+  const hashDepth = () => cdp.eval(
+    "decodeURIComponent(location.hash).replace(/^#\\/?/,'').split('/').filter(Boolean).length");
+  const waitDepth = n => waitFor(async () => (await hashDepth()) >= n, 12000);
+
   // 3) 省卡 → 城市列表（直辖市只有 1 个市属正常，故只断言 >0）
   await cdp.eval("document.querySelector('.spot-card').click()");
-  await sleep(1200);
+  await waitDepth(1);
   const cityCards = await cdp.eval("document.querySelectorAll('.spot-card').length");
   check('点击省卡进入城市列表', cityCards > 0, cityCards + ' 张');
   const hash1 = await cdp.eval("location.hash");
@@ -288,7 +297,7 @@ function check(name, ok, detail = '') {
 
   // 4) 城市卡 → 景点列表
   await cdp.eval("document.querySelector('.spot-card').click()");
-  await sleep(1200);
+  await waitDepth(2);
   const spotCards = await cdp.eval("document.querySelectorAll('.spot-card').length");
   check('点击市卡进入景点列表', spotCards > 0, spotCards + ' 张');
 
@@ -318,7 +327,8 @@ function check(name, ok, detail = '') {
     return c.querySelector('h4').textContent;
   })()`);
   await cdp.eval("document.querySelector('.spot-card').click()");
-  await sleep(2500);
+  // 等弹窗真的打开（要等简介库 250KB 就绪），别用固定 sleep
+  await waitFor(async () => (await cdp.eval("!document.getElementById('intro-modal').hidden")) === true, 15000);
   const modalOpen = await cdp.eval("!document.getElementById('intro-modal').hidden");
   check('点击景点打开详情弹窗', modalOpen === true, 'hidden=' + (await cdp.eval("document.getElementById('intro-modal').hidden")));
 

@@ -45,7 +45,9 @@ function placeholder(spotName, type) {
 }
 
 // ── 运行时精搜缓存（localStorage）──
-const CACHE_KEY = 'ns_wiki_img_v2';
+// v2 → v3：v2 里存的是 Wikimedia 年代的地址（国内已经不可达），
+// 这些陈旧条目会排在静态图组后面抢图集格子，必须整体作废。
+const CACHE_KEY = 'ns_wiki_img_v3';
 // 内存镜像：原来每渲染一张卡片都要 localStorage.getItem + JSON.parse 一次，
 // 1779 张卡片就是 1779 次全量解析（缓存越大越慢）。
 // 改成解析一次后常驻内存，写入时同步更新镜像。
@@ -62,6 +64,29 @@ function loadCache() {
 function saveCache(c) {
   cacheMemo = c;
   try { localStorage.setItem(CACHE_KEY, JSON.stringify(c)); } catch (e) { /* 满了静默 */ }
+}
+
+// 运行期拿到的 URL 统一规整：
+//   · wikimedia / bcebos 在国内不可达或有防盗链 → 直接丢弃
+//   · 360 CDN 的原图换成 /dr/720_720_/ 缩放地址（原图常 1.2MB）
+// 构建期已经处理过一轮，但 localStorage 里的历史缓存和运行时补搜
+// 还会带进未规整的地址，这里是最后一道闸。
+const DEAD_HOST = /(^|\.)(wikimedia\.org|bcebos\.com)$/i;
+const CDN_HOST = /(^|\.)qhimgs\d*\.com$/i;
+function normImgUrl(u) {
+  if (!u || typeof u !== 'string') return '';
+  if (u.startsWith('img/') || u.startsWith('data:')) return u;
+  try {
+    const p = new URL(u, location.href);
+    if (DEAD_HOST.test(p.hostname)) return '';
+    if (CDN_HOST.test(p.hostname) && !p.pathname.startsWith('/dr/')) {
+      p.pathname = '/dr/720_720_' + p.pathname;
+      return p.toString();
+    }
+  } catch (e) {
+    return '';
+  }
+  return u;
 }
 
 // 过滤明显非风景（地图/标志/扫描件等）
@@ -160,7 +185,10 @@ export function getSpotCover(spotName, provName, type) {
   const e = IMAGES_DB.get(spotName);
   if (e) return e[0];                         // 静态库真实照片
   const c = loadCache();
-  if (c[spotName] && c[spotName][0]) return c[spotName][0];
+  if (c[spotName] && c[spotName][0]) {
+    const v = normImgUrl(c[spotName][0]);
+    if (v) return v;
+  }
   return placeholder(spotName, type);
 }
 
@@ -192,7 +220,10 @@ export function getSpotImages(spotName, provName, count = 3, type) {
   const out = [];
   // 用 Set 去重：原来用 indexOf 逐个查，图集满载时是 O(n²)
   const seen = new Set();
-  const push = u => { if (u && !seen.has(u)) { seen.add(u); out.push(u); } };
+  const push = u => {
+    const v = normImgUrl(u);
+    if (v && !seen.has(v)) { seen.add(v); out.push(v); }
+  };
   const e = IMAGES_DB.get(spotName);
   if (e) {
     push(e[0]);
@@ -230,7 +261,10 @@ export async function enrichSpotImages(spotName, provName, type, count = 3) {
       const merged = [];
       const seen = new Set();
       if (e) { merged.push(e[0]); seen.add(e[0]); }
-      for (const u of found) if (!seen.has(u)) { seen.add(u); merged.push(u); }
+      for (const u of found) {
+        const v = normImgUrl(u);
+        if (v && !seen.has(v)) { seen.add(v); merged.push(v); }
+      }
       const cache = loadCache();
       cache[spotName] = merged;
       saveCache(cache);
