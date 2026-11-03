@@ -32,8 +32,11 @@
 //
 // 【高德地图 · 静态街景】（可选，单视角图，用于对照）
 //   高德 Web 服务 API Key：https://console.amap.com/dev/key/app
-export const BAIDU_AK = 'xfdsKWLyQGGNtY02i054FcXTqGmmw7CF';
+// 当前 AK 属于百度应用「析夜游神」(ID 124614603，浏览器端)；
+// 旧应用「夜游神」(124530587) 仍在控制台保留作备用。轮换时改这一行后重跑：
+//   python tools/probe_baidu_api.py --write
+export const BAIDU_AK = 'jGwUigwTLfg2EsniG5tT853yyUquzJuH';
 export const AMAP_KEY = '';
 
 // 由 tools/probe_baidu_api.py 生成：控制台各服务的真实开通状态
-export const BAIDU_CAPS = { "staticImage": true, "panorama": false, "placeSearch": false, "geocoding": false, "checkedAt": "2026-10-24" };
+export const BAIDU_CAPS = {"staticImage": true, "panorama": false, "placeSearch": false, "geocoding": false, "checkedAt": "2026-11-03"};
