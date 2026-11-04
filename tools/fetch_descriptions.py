@@ -8,16 +8,20 @@
     python tools/fetch_descriptions.py --regions   # 只跑省市
 
 产出：
-    data/desc_db.json      { 景点名: [简介, 词条名] }     原始缓存（断点续跑用）
+    data/desc_db.json      { 景点名 | 省|市|名: [简介, 词条名] }  原始缓存（断点续跑用）
     data/region_db.json    { "省名" | "省|市": 简介 }
     js/spot-desc-db.js     SPOT_DESC_DB
     js/region-desc-db.js   REGION_DESC_DB
+
+注意：同名不同地的景点（西湖 / 象鼻山 / 世界之窗…）在维基是两个词条，
+      缓存里用「省|市|名」做键，见 dup_names / resolve_dup。
 """
-import argparse, json, os, sys, time, urllib.parse
+import argparse, json, os, re, sys, time, urllib.parse
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from common import (DATA, JS, ZHW, clean_text, get_json, js_export,
+from common import (DATA, JS, ZHW, clean_text, get_json, is_disambig, js_export,
                     load_json, save_json, search_title as _search_title)
 
 SPOT_CACHE = os.path.join(DATA, 'desc_db.json')
@@ -74,6 +78,150 @@ def load_spots():
     return load_json(os.path.join(DATA, 'spots_uniq.json'), [])
 
 
+# ─── 同名不同地：西湖 / 象鼻山 / 世界之窗 … ───────────────────
+# 这类名字在每个城市指的是一处不同的风景，维基也是不同词条。
+# 早先只按「景点名」做键，后入库的城市直接复用了先入库城市那段话：
+# 惠州西湖显示杭州西湖、呼和浩特的寺庙显示拉萨大昭寺、清远显示韶关丹霞山。
+# 所以重名景点一律用「省|市|名」做键，前端也按同一规则查（见 js/lexicon.js）。
+def dup_names(spots):
+    c = Counter(s['name'] for s in spots)
+    return {n for n, k in c.items() if k > 1}
+
+
+def spot_desc_key(s, dup):
+    if s['name'] in dup:
+        return '%s|%s|%s' % (s.get('prov', ''), s.get('city', ''), s['name'])
+    return s['name']
+
+
+# 词条名后面接这些后缀，讲的通常是同名的基础设施 / 行政区 / 作品，不是这处风景。
+# 实际踩过：「五当召」取到「五当召镇」、「南湖」取到「嘉兴南湖机场」、
+# 「大别山」取到「大别山晨刊」（报纸）。
+BAD_TAIL = ('机场', '车站', '站', '镇', '乡', '街道', '社区', '村', '路', '街',
+            '区', '县', '大学', '中学', '小学', '公司', '集团', '专辑', '电影',
+            '电视剧', '歌曲', '小说', '游戏', '品牌', '赛事',
+            '日报', '晚报', '晨刊', '周刊', '月刊', '杂志', '电视台', '广播')
+
+# 正文里出现这些词，说明是舞剧 / 影视 / 企业这类同名作品或机构，不是地理实体
+OFF_TOPIC_WORDS = ('舞剧', '芭蕾', '歌剧', '交响', '音乐剧', '电影', '电视剧',
+                   '小说', '专辑', '歌曲', '漫画', '动画', '游戏', '综艺',
+                   '日报', '晚报', '晨刊', '周刊', '杂志', '电视台', '频道',
+                   '有限公司', '股份', '人民政府', '委员会')
+
+
+def precise_title(title, name):
+    """词条标题是否就是这处风景（允许「世界之窗 (深圳)」这种消歧义括号）"""
+    if not title or not name:
+        return False
+    if title == name:
+        return True
+    if title.startswith(name):
+        rest = title[len(name):]
+    elif title.endswith(name):
+        rest = title[:len(title) - len(name)]
+    else:
+        return False
+    rest = rest.strip('·・-—()（） ')
+    if not rest:
+        return True
+    # 括号消歧义（「世界之窗 (深圳)」）是好事，交给正文按城市校验
+    if rest[0] in '(（' or rest[-1] in ')）':
+        return True
+    return not (rest.startswith(BAD_TAIL) or rest.endswith(BAD_TAIL))
+
+
+def off_topic(text, name):
+    """正文看起来不是讲这处风景的（同名作品 / 机构 / 人物 / 配套设施）"""
+    head = (text or '')[:60]
+    if head.lstrip().startswith('《'):          # 书名号开头 = 作品词条（天鹅湖是舞剧）
+        return True
+    if re.search(re.escape(name) + '(?:' + '|'.join(BAD_TAIL) + ')', head):
+        return True
+    if any(w in head for w in OFF_TOPIC_WORDS):
+        return True
+    # 人物词条：「陈镜湖（1901年—1933年）」
+    return bool(re.search(r'^' + re.escape(name) + r'[（(]\d{4}年', head))
+
+
+def search_pages(q, limit=6):
+    """按关键词检索词条（含首段）→ [(标题, 正文)]"""
+    u = urllib.parse.urlencode({
+        'action': 'query', 'format': 'json', 'generator': 'search',
+        'gsrsearch': q, 'gsrlimit': limit, 'gsrnamespace': '0',
+        'prop': 'extracts', 'exintro': '1', 'explaintext': '1',
+        'exlimit': 'max', 'variant': 'zh-cn'})
+    d = get_json(ZHW + u, retries=2, timeout=20)
+    if not d or 'query' not in d:
+        return []
+    ps = sorted(d['query'].get('pages', {}).values(), key=lambda p: p.get('index', 99))
+    return [(p['title'], p.get('extract') or '') for p in ps]
+
+
+def locate_title(name, city, prov):
+    """定位景点对应的词条标题。
+
+    先用 common.search_title（按标题匹配），它有两个已知落空/跑偏：
+      · 繁体标题：「五当召」的词条标题是「五當召」，永远查不到；
+      · 就近匹配到同名行政单位：「五当召镇」。
+    所以补一道兜底：正文开头就是这个名字，也算命中；标题像"镇/站/机场"的先否掉。
+    """
+    t = search_title(name, city, prov)
+    if t and precise_title(t, name):
+        return t
+    for ti, x in search_pages(name, 5):
+        if not x or is_disambig(x) or off_topic(x, name):
+            continue
+        if precise_title(ti, name) or x.startswith(name):
+            return ti
+    return None
+
+
+def resolve_dup(s, db, city_names, prov_names):
+    """给重名景点找回「本地这一处」的词条。
+
+    先按「城市+名」检索，只接受标题确实是这处风景、且正文明确落在本市的候选
+    —— 少了这层校验，检索会把「大昭寺」原样返回，于是一路沿用拉萨那座；
+    只按省匹配也不安全（清远的丹霞山会拿到韶关的、文山的老君山会拿到栾川的）。
+    实在找不到就回退手写的一句话（宁可短，不要把外地简介挂上来）。
+    """
+    name, city, prov = s['name'], s.get('city', ''), s.get('prov', '')
+    cands = {}
+    for q in (city + name, name + ' ' + city, name):
+        for t, x in search_pages(q):
+            cands.setdefault(t, x)
+
+    def rival_regions(text):
+        """正文里出现的别的城市 / 别的省"""
+        rs = [c for c in city_names if c and c != city and c in text]
+        rs += [p for p in prov_names if p and p != prov and p in text]
+        return rs
+
+    best, best_score = None, 0
+    for t, x in cands.items():
+        if not precise_title(t, name) or is_disambig(x) or off_topic(x, name):
+            continue
+        if not city or city not in x:
+            continue
+        score = 4 + (1 if t.startswith(city) else 0)
+        if score > best_score:
+            best, best_score = (t, x), score
+    if best:
+        txt = clean_text(best[1], name)
+        if txt and not is_disambig(txt):
+            return [txt, best[0]], 'scoped'
+
+    # 退一步：只有「纯总述词条」才敢用 —— 标题就是这个名字、正文确实讲到本市或本省、
+    # 且没提别的省市（「孔庙」「塔克拉玛干」「大别山」这类）。提到别处就说明它讲的
+    # 是那一处（洛阳的白马寺、韶关的丹霞山），宁可回退手写的一句话。
+    plain = db.get(name)
+    if (plain and plain[0] and plain[1] == name
+            and not off_topic(plain[0], name)
+            and (city in plain[0] or prov in plain[0])
+            and not rival_regions(plain[0])):
+        return [plain[0], plain[1]], 'generic'
+    return None, 'none'
+
+
 def parse_regions():
     """省市索引（由 tools/build-spot-index.mjs 生成）"""
     return load_json(os.path.join(DATA, 'regions_uniq.json'), [])
@@ -90,40 +238,46 @@ def do_spots(limit):
     if empty:
         print('清理空简介缓存 %d 条（会重新抓）' % len(empty), flush=True)
     spots = load_spots()
-    todo = [s for s in spots if s['name'] not in db]
-    print('景点简介：已有 %d / %d，本轮待查 %d' % (len(db), len(spots), len(todo)), flush=True)
+    dup = dup_names(spots)
+    todo = [s for s in spots if spot_desc_key(s, dup) not in db]
+    print('景点简介：已有 %d 键 / %d 处景点，本轮待查 %d（重名景点 %d）'
+          % (len(db), len(spots), len(todo), sum(1 for s in todo if s['name'] in dup)), flush=True)
     if not todo:
         return db
     # 打乱顺序，避免失败批次被反复重试同一批（代理不稳时尤其重要）
     import random
-    random.Random(20261003).shuffle(todo)
+    plain_todo = [s for s in todo if s['name'] not in dup]
+    dup_todo = [s for s in todo if s['name'] in dup]
+    random.Random(20261003).shuffle(plain_todo)
     if limit:
-        todo = todo[:limit]
+        plain_todo = plain_todo[:limit]
 
-    # 阶段 A：精确标题批量
-    names = [s['name'] for s in todo]
+    # 阶段 A：精确标题批量（只处理不重名的：重名的走 resolve_dup 按城市校验）
+    names = [s['name'] for s in plain_todo]
     got = run_batches(names)
     hit = 0
-    for s in todo:
+    for s in plain_todo:
         rec = got.get(s['name'])
         if not rec:
             continue
         t = clean_text(rec[0], s['name'])
-        if t:
+        if t and not is_disambig(t):     # 消歧义页（「南湖公园，可能是指：…」）不能当简介
             db[s['name']] = [t, rec[1]]
             hit += 1
     print('  阶段A 命中 %d' % hit, flush=True)
     save_json(SPOT_CACHE, db)
 
     # 阶段 B：漏网的用「城市+名」搜索定位
-    miss = [s for s in todo if s['name'] not in db]
+    miss = [s for s in plain_todo if s['name'] not in db]
     if miss:
         print('  阶段B 搜索定位 %d 个' % len(miss), flush=True)
         titles = {}
-        with ThreadPoolExecutor(max_workers=24) as ex:
+        # 并发别开太大：每个名字要发 4 条检索，24 路并发会被维基限流，
+        # 结果就是整批静默失败（一轮下来 75 个全 0 命中）。
+        with ThreadPoolExecutor(max_workers=6) as ex:
             def work(s):
                 try:
-                    return s['name'], search_title(s['name'], s['city'], s['prov'])
+                    return s['name'], locate_title(s['name'], s['city'], s['prov'])
                 except Exception:
                     return s['name'], None
             for name, t in ex.map(work, miss):
@@ -136,10 +290,40 @@ def do_spots(limit):
             if not rec:
                 continue
             txt = clean_text(rec[0], name)
-            if txt:
+            # 标题跑偏（「五当召」定位到「五当召镇」）的不收
+            if txt and not is_disambig(txt) and not off_topic(txt, name) \
+                    and (precise_title(t, name) or txt.startswith(name)):
                 db[name] = [txt, rec[1]]
                 hit2 += 1
         print('  阶段B 命中 %d' % hit2, flush=True)
+
+    # 阶段 C：重名景点按城市逐处解析
+    if dup_todo:
+        cities = sorted({s.get('city', '') for s in spots if s.get('city')})
+        provs = sorted({s.get('prov', '') for s in spots if s.get('prov')})
+        tally = Counter()
+        with ThreadPoolExecutor(max_workers=6) as ex:
+            def work(s):
+                try:
+                    return s, resolve_dup(s, db, cities, provs)
+                except Exception:
+                    return s, (None, 'error')
+            for s, (rec, how) in ex.map(work, dup_todo):
+                tally[how] += 1
+                if rec:
+                    db[spot_desc_key(s, dup)] = rec
+        print('  阶段C 重名景点 %d 处：本地词条 %d / 通用词条 %d / 无 %d'
+              % (len(dup_todo), tally['scoped'], tally['generic'], tally['none']), flush=True)
+
+    # 重名景点的裸名键必须清掉：它对其中某一处必然是错的，
+    # 留着会让页面在缺分城条目时又退回到外地的简介。
+    stale = [n for n in dup if n in db]
+    for n in stale:
+        db.pop(n)
+    if stale:
+        print('  清理重名裸名键 %d 个（改用 省|市|名）' % len(stale), flush=True)
+    save_json(SPOT_CACHE, db)
+    return db
     save_json(SPOT_CACHE, db)
     return db
 

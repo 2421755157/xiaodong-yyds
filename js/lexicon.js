@@ -179,3 +179,17 @@ export function expandDesc(name, type, baseDesc) {
   const typeLabel = { mountain:'山岳', water:'水景', town:'古镇', garden:'园林', coast:'海岸', city:'都市', temple:'寺庙', ruin:'遗址', park:'公园', snow:'雪景', desert:'沙漠', modern:'现代地标', island:'岛屿', forest:'森林' }[type] || '风景';
   return `${name}是${typeLabel}类景点。${baseDesc} 这里四季景致各异，晨昏光影不同——清晨薄雾未散时最是清幽，落日熔金时分最为动人。漫步其间，可放缓脚步细品一砖一瓦、一草一木，感受当地人世代相传的生活气与山水间沉淀的岁月。值得花上半天，找一处合眼缘的角落坐下，发个呆，想点平时没空想的事。`;
 }
+
+// ═══ 景点简介库的键 ═══
+// 同名不同地的景点（西湖在杭州和惠州、象鼻山在桂林和鹰潭…）在库里按
+// 「省|市|名」分开存：只按名字取，页面会把杭州西湖的那段话挂到惠州西湖上。
+// 数据侧由 tools/fetch_descriptions.py 生成，两边必须用同一套键。
+export function spotDescKey(prov, city, name) {
+  return prov && city ? prov + '|' + city + '|' + name : name;
+}
+
+/** 取景点简介：先查城市限定键，再退到裸名（不重名的景点用裸名），最后用手写的一句话 */
+export function pickSpotDesc(read, key, name, fallback) {
+  if (!read) return fallback || '';
+  return read(key) || read(name) || fallback || '';
+}

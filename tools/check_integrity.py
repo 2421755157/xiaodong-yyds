@@ -145,11 +145,23 @@ try:
     imgs = js_obj(os.path.join(JS, 'spot-images-db.js'), 'SPOT_IMAGES_DB')
     gal = js_obj(os.path.join(JS, 'spot-gallery-db.js'), 'SPOT_GALLERY_DB')
     desc = js_obj(os.path.join(JS, 'spot-desc-db.js'), 'SPOT_DESC_DB')
+    # 简介库的键不是一景一键：重名景点用「省|市|名」分开存，所以"有简介的景点数"
+    # 必须逐景点去查（与 build_home_stats.mjs 同口径），不能拿键数当景点数。
+    spots_idx = json.load(io.open(os.path.join(ROOT, 'data', 'spots_uniq.json'), encoding='utf-8'))
+    name_cnt = {}
+    for s in spots_idx:
+        name_cnt[s['name']] = name_cnt.get(s['name'], 0) + 1
+    dup = {n for n, c in name_cnt.items() if c > 1}
+    desc_covered = 0
+    for s in spots_idx:
+        key = '%s|%s|%s' % (s.get('prov', ''), s.get('city', ''), s['name']) if s['name'] in dup else s['name']
+        if desc.get(key) or desc.get(s['name']):
+            desc_covered += 1
     actual = {
         'photos': len(imgs),
         'exclusive': len([1 for v in imgs.values() if v[1] >= 3]),
         'gallery': len(gal),
-        'desc': len(desc),
+        'desc': desc_covered,
     }
     for k, v in actual.items():
         if hs.get(k) != v:

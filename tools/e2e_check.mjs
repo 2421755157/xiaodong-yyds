@@ -683,6 +683,37 @@ function check(name, ok, detail = '') {
   check('新访客点分享链接直接看到景点', g.name === '拙政园' && g.gate === false,
     `景点="${g.name || ''}" 欢迎页=${g.gate} 称呼="${g.user || ''}"`);
 
+  // 9d) 同名景点简介不串城
+  //     简介库原先只按景点名做键，惠州西湖直接复用了杭州西湖那段话
+  //     （"位于浙江省杭州旧城西侧"），清远丹霞山显示的是韶关的。
+  const openSpotByHash = async (prov, city, name) => {
+    await cdp.navigate(BASE.replace(/\/$/, '') + '#/' + encodeURIComponent(prov) + '/'
+      + encodeURIComponent(city) + '/' + encodeURIComponent(name));
+    const raw = await waitFor(async () => {
+      const j = await cdp.eval(`(() => {
+        const m = document.getElementById('intro-modal');
+        if (!m || m.hidden) return '';
+        const d = (document.getElementById('intro-desc') || {}).textContent || '';
+        if (d.length < 6) return '';
+        return JSON.stringify({
+          name: (document.getElementById('intro-name') || {}).textContent || '',
+          desc: d,
+        });
+      })()`);
+      return j || 0;
+    }, 15000);
+    return raw ? JSON.parse(raw) : { name: '', desc: '' };
+  };
+  const hz = await openSpotByHash('广东', '惠州', '西湖');
+  check('同名景点简介不串城（惠州西湖）',
+    hz.name === '西湖' && hz.desc.indexOf('惠州') >= 0 && hz.desc.indexOf('杭州') < 0,
+    hz.desc.slice(0, 34) || '(无简介)');
+
+  const hh = await openSpotByHash('内蒙古', '呼和浩特', '大昭寺');
+  check('无本地词条时不套外地简介（呼和浩特）',
+    hh.name === '大昭寺' && hh.desc.indexOf('拉萨') < 0 && hh.desc.indexOf('八廓街') < 0,
+    hh.desc.slice(0, 34) || '(无简介)');
+
   console.log('\n通过 ' + results.filter(r => r.ok).length + '/' + results.length);
   const failed = results.filter(r => !r.ok);
   if (failed.length) {

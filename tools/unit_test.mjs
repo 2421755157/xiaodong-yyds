@@ -17,6 +17,8 @@ import * as sv from '../js/streetview.js';
 import * as si from '../js/spot-images.js';
 import * as meta from '../js/scenes-meta.js';
 import * as tl from '../js/three-loader.js';
+import { spotDescKey, pickSpotDesc } from '../js/lexicon.js';
+import { PROVINCES } from '../js/china-data.js';
 
 let passed = 0, failed = 0;
 const skipped = 0;   // 预留：将来有条件跳过的用例
@@ -323,6 +325,62 @@ await test('3D 预热: 无 Network Information API 时默认预热', () => {
   assert.equal(tl.shouldWarmUp(null), true);
   assert.equal(tl.shouldWarmUp(undefined), true);
   assert.equal(tl.shouldWarmUp({}), true);
+});
+
+// ── 景点简介的键与回退（同名景点不能串城）──
+// 背景：简介库原先只按景点名做键，「西湖」在杭州和惠州各一处，于是惠州页面
+// 显示的是杭州西湖那段话。现在重名景点用「省|市|名」分开存。
+await test('spotDescKey: 有省市时按「省|市|名」', () => {
+  assert.equal(spotDescKey('广东', '惠州', '西湖'), '广东|惠州|西湖');
+});
+await test('spotDescKey: 缺省市时退回裸名', () => {
+  assert.equal(spotDescKey('', '', '西湖'), '西湖');
+  assert.equal(spotDescKey(undefined, undefined, '故宫'), '故宫');
+});
+await test('pickSpotDesc: 城市限定键优先于裸名', () => {
+  const db = { '西湖': '杭州的湖', '广东|惠州|西湖': '惠州的湖' };
+  const read = k => db[k];
+  assert.equal(pickSpotDesc(read, '广东|惠州|西湖', '西湖', '手写'), '惠州的湖');
+});
+await test('pickSpotDesc: 没有分城条目时退到裸名', () => {
+  const db = { '西湖': '杭州的湖' };
+  assert.equal(pickSpotDesc(k => db[k], '江西|鹰潭|西湖', '西湖', '手写'), '杭州的湖');
+});
+await test('pickSpotDesc: 库里没有时用手写一句话，不返回空', () => {
+  assert.equal(pickSpotDesc(k => ({}[k]), 'x|y|z', 'q', '手写的一句话'), '手写的一句话');
+  assert.equal(pickSpotDesc(null, 'k', 'n', 'd'), 'd');
+});
+
+// ── 简介库的数据不变量 ──
+// 重名景点一旦又出现裸名键，就说明有城市会再次捡到别人的简介。
+await test('简介库: 重名景点不得残留裸名键', async () => {
+  const { SPOT_DESC_DB } = await import('../js/spot-desc-db.js');
+  const cnt = {};
+  for (const p of PROVINCES) for (const c of p.cities) for (const s of c.spots) {
+    cnt[s.n] = (cnt[s.n] || 0) + 1;
+  }
+  const leaked = Object.keys(cnt).filter(n => cnt[n] > 1 && SPOT_DESC_DB[n]);
+  assert.deepEqual(leaked, [], '仍是裸名键的重名景点：' + leaked.slice(0, 5).join('、'));
+});
+await test('简介库: 分城条目讲的是本地那一处', async () => {
+  const { SPOT_DESC_DB } = await import('../js/spot-desc-db.js');
+  const cases = [
+    ['广东', '惠州', '西湖', '惠州', '杭州'],
+    ['广东', '深圳', '世界之窗', '深圳', '长沙'],
+    ['浙江', '嘉兴', '南湖', '嘉兴', '淮北'],
+  ];
+  for (const [prov, city, name, mine, other] of cases) {
+    const txt = SPOT_DESC_DB[spotDescKey(prov, city, name)] || '';
+    assert.ok(txt.includes(mine), city + name + ' 的简介应提到' + mine + '：' + txt.slice(0, 30));
+    assert.ok(!txt.includes(other), city + name + ' 的简介不该提到' + other);
+  }
+});
+await test('简介库: 找不到本地词条时宁可没有，也不套外地那条', async () => {
+  const { SPOT_DESC_DB } = await import('../js/spot-desc-db.js');
+  // 呼和浩特的这处寺庙没有对应词条，回退手写的一句话，
+  // 既不能有分城条目，也不能留着拉萨那座大昭寺的裸名条目。
+  assert.equal(SPOT_DESC_DB[spotDescKey('内蒙古', '呼和浩特', '大昭寺')], undefined, '不应有分城简介');
+  assert.equal(SPOT_DESC_DB['大昭寺'], undefined, '裸名条目必须清掉，否则会串到呼和浩特');
 });
 
 // ─────────────────────────── 汇总 ───────────────────────────// 注意：不要写 '\n通过 %d，失败 %d' % (...) ——

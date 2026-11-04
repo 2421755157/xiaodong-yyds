@@ -21,16 +21,30 @@ const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const JS = path.join(ROOT, 'js');
 const imp = f => import(pathToFileURL(path.join(JS, f)).href);
 
-const [{ SPOT_IMAGES_DB }, { SPOT_GALLERY_DB }, { SPOT_DESC_DB }] = await Promise.all([
-  imp('spot-images-db.js'), imp('spot-gallery-db.js'), imp('spot-desc-db.js'),
-]);
+const [{ SPOT_IMAGES_DB }, { SPOT_GALLERY_DB }, { SPOT_DESC_DB }, { PROVINCES }, { spotDescKey }] =
+  await Promise.all([
+    imp('spot-images-db.js'), imp('spot-gallery-db.js'), imp('spot-desc-db.js'),
+    imp('china-data.js'), imp('lexicon.js'),
+  ]);
+
+// 简介库的键不是「一景一键」：重名景点（西湖/象鼻山/世界之窗…）用「省|市|名」分开存，
+// 所以不能拿 Object.keys().length 当"有简介的景点数"——那会把 100 多处分城词条
+// 当成景点，也会漏掉还在等抓取的。这里按景点逐一查，口径与运行时 realDesc 一致。
+let descCovered = 0;
+for (const p of PROVINCES) {
+  for (const c of p.cities) {
+    for (const s of c.spots) {
+      if (SPOT_DESC_DB[spotDescKey(p.n, c.n, s.n)] || SPOT_DESC_DB[s.n]) descCovered++;
+    }
+  }
+}
 
 const vals = Object.values(SPOT_IMAGES_DB);
 const stats = {
   photos: vals.length,                      // 有主图的景点
   exclusive: vals.filter(v => v[1] >= 3).length,   // 景点专属图（置信 3）
   gallery: Object.keys(SPOT_GALLERY_DB).length,    // 有多图的景点
-  desc: Object.keys(SPOT_DESC_DB).length,          // 有真实简介的景点
+  desc: descCovered,                        // 有真实简介的景点（按景点计，不按库键计）
 };
 
 const body = '// ═══ 首页数据条统计（构建期生成，勿手改）═══\n' +

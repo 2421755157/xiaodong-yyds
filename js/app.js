@@ -11,7 +11,7 @@ import { resolveTheme, THEME_ORDER, themeLabel, PRO_SCENES, spotSeed, setQuality
 import { isMobile } from './env.js';
 import { loadThreeRuntime, loadPanorama, warmUpThree } from './three-loader.js';
 import { analyzeToday, drawMoodCard } from './mood.js';
-import { FORTUNES, greetingFor, SPOT_MEMES, expandDesc, pickN } from './lexicon.js';
+import { FORTUNES, greetingFor, SPOT_MEMES, expandDesc, pickN, spotDescKey, pickSpotDesc } from './lexicon.js';
 import { getSpotImages, getSpotCover, galleryReady, ensureGallery, enrichSpotImages,
          loadSpotImages, spotImagesReady } from './spot-images.js';
 import { streetViewFor, hasStreetView, POIID_DB } from './streetview.js';
@@ -41,8 +41,19 @@ const PINYIN_DB = lazyDB(() => import('./pinyin-db.js'), m => m.PINYIN_DB);
 let descDBRepainted = false;
 
 // ═══ 景点真实简介（维基词条首段静态库）优先，手写 d 字段作为回退 ═══
+// 同名景点（西湖/象鼻山/世界之窗）在库里是「省|市|名」分开存的，
+// 这里给每个 spot 对象预先绑好自己的键，省得每个调用点都手工传省市。
+const DESC_KEY = new WeakMap();
+for (const p of PROVINCES) {
+  for (const c of p.cities) {
+    for (const s of c.spots) DESC_KEY.set(s, spotDescKey(p.n, c.n, s.n));
+  }
+}
 function realDesc(spot) {
-  return DESC_DB.get(spot.n) || spot.d || '';
+  return pickSpotDesc(DESC_DB.get, DESC_KEY.get(spot), spot.n, spot.d);
+}
+function hasRealDesc(spot) {
+  return !!pickSpotDesc(DESC_DB.get, DESC_KEY.get(spot), spot.n, '');
 }
 // 卡片摘要：取首句、限长，避免长段落撑破卡片
 function shortDesc(spot, max = 44) {
@@ -423,7 +434,7 @@ function doSearch() {
       }
       if (searchType === 'city' || searchType === 'prov') continue;
       for (const s of c.spots) {
-        const d = DESC_DB.get(s.n) || s.d || '';
+        const d = realDesc(s);
         const byName = s.n.includes(q) || pyHit(s.n);
         if (byName || d.includes(q)) {
           results.push({ byName, type: 'spot', prov: p, city: c, spot: s, label: s.n, sub: p.n + ' ' + c.n, tag: (SPOT_TYPE[s.t] || {}).label, hit: byName ? s.n : d });
@@ -574,7 +585,7 @@ function openLightbox(urls, idx) {
 function renderSource(spot) {
   const el = $('#intro-source');
   if (!el) return;
-  if (DESC_DB.get(spot.n)) {
+  if (hasRealDesc(spot)) {
     // 指向百度百科而不是维基：zh.wikipedia.org 在国内网络不可达，
     // 点开就是"无法访问此网站"；而且现在过半简介本来就来自百科。
     el.innerHTML = '资料来源：<a href="https://baike.baidu.com/item/' + encodeURIComponent(spot.n) +
@@ -605,7 +616,7 @@ function renderRelated(prov, city, spot) {
   const others = city.spots.filter(s => s.n !== spot.n);
   if (!others.length) { box.hidden = true; box.innerHTML = ''; return; }
   // 同类型优先，其次有真实简介的优先
-  const scored = others.map(s => ({ s, k: (s.t === spot.t ? 2 : 0) + (DESC_DB.get(s.n) ? 1 : 0) + spotSeed(s.n) % 2 }));
+  const scored = others.map(s => ({ s, k: (s.t === spot.t ? 2 : 0) + (hasRealDesc(s) ? 1 : 0) + spotSeed(s.n) % 2 }));
   scored.sort((a, b) => b.k - a.k);
   const picks = scored.slice(0, 6).map(x => x.s);
   box.hidden = false;
