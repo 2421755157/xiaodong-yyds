@@ -606,6 +606,23 @@ function check(name, ok, detail = '') {
   const errsInScene = cdp.logs.filter(l => /error|exception/i.test(l.type));
   check('3D 场景无报错', errsInScene.length === 0, errsInScene.length ? errsInScene.slice(0, 2).map(e => (e.text || '').slice(0, 80)).join(' | ') : '干净');
 
+  // 7b-2) GPU 资源不累积
+  //      实景看板（主图贴图 + 3 个材质）是每次进景点现做的，不在场景材质缓存里，
+  //      漏了 dispose 就会每切一次时辰净增一张 1024×768 贴图（约 3MB 显存）。
+  //      旧版本 leaveSpotSilent 只 dispose 了几何体，这里就是那个漏点的回归测试。
+  const mem0 = await cdp.eval("window.__nsMem ? window.__nsMem() : null");
+  const tag0 = await cdp.eval("document.getElementById('hud-spot-tag').textContent");
+  await cdp.eval("document.getElementById('btn-theme').click()");
+  await sleep(1000);
+  await cdp.eval("document.getElementById('btn-theme').click()");
+  await sleep(1000);
+  const mem1 = await cdp.eval("window.__nsMem ? window.__nsMem() : null");
+  const tag1 = await cdp.eval("document.getElementById('hud-spot-tag').textContent");
+  check('切换时辰后场景已重建', !!tag1 && tag1 !== tag0, `${tag0} → ${tag1}`);
+  check('切换时辰不累积 GPU 贴图',
+    !!(mem0 && mem1) && mem1.textures <= mem0.textures,
+    `贴图 ${mem0 && mem0.textures} → ${mem1 && mem1.textures}`);
+
   // 7c) 场景截图不能顶掉真实封面
   //     老版本在进入 3D 2.6s 后会把 canvas 截成 400×240 JPEG 存成景点封面，
   //     于是「故宫」的封面变成一片程序生成的通用地形。等过那个时间点再看存储。
@@ -621,6 +638,9 @@ function check(name, ok, detail = '') {
     `封面${ac.total}个，截图覆盖${ac.bad}个`);
   await cdp.eval("document.getElementById('btn-back').click()");
   await waitFor(async () => (await cdp.eval("document.getElementById('stage').hidden")) === true, 6000);
+  const mem2 = await cdp.eval("window.__nsMem ? window.__nsMem() : null");
+  check('离开 3D 后看板贴图已释放', !!(mem1 && mem2) && mem2.textures < mem1.textures,
+    `贴图 ${mem1 && mem1.textures} → ${mem2 && mem2.textures}`);
 
   // 8) 控制台报错
   const errs = cdp.logs.filter(l => /error|exception/i.test(l.type));

@@ -38,16 +38,6 @@ export const SPOT_TYPE = {
   desert:   { label: '沙漠', scene: 'desert' },
 };
 
-// 工具：按省市景点名查找
-export function findSpot(provName, cityName, spotName) {
-  const p = PROVINCES.find(x => x.n === provName);
-  if (!p) return null;
-  const c = p.cities.find(x => x.n === cityName);
-  if (!c) return null;
-  const s = c.spots.find(x => x.n === spotName);
-  return s ? { prov: p, city: c, spot: s } : null;
-}
-
 // 统计
 export function stats() {
   let cities = 0, spots = 0;

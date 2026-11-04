@@ -214,6 +214,49 @@ try:
 except Exception as e:
     problems.append('拼音索引校验失败（%s）' % e)
 
+# 9) 死导出：export 出去但全仓没有任何地方引用
+#    这类代码不报错、不影响测试，只会一直烂在模块里，等有人以为它还在用。
+#    2026-11-04 一次清查就抓到 7 个（findSpot / panoramaOpen / 4 个纹理函数…），
+#    其中有 4 个在 3D 懒加载块里，是纯负担。这里守一道，避免以后又长回来。
+#    只检查 `export const/function/class` 声明式导出；`export { x } from './y'`
+#    这类再导出要看调用链，误报多，不纳入。
+DEAD_EXPORT_SKIP = ('long-db-',)          # 数据块：导出名是按 'LONG_DESC_DB_' + i 拼出来的
+try:
+    consumers = {}
+    for root, _dirs, files in os.walk(JS):
+        for fn in files:
+            if fn.endswith('.js'):
+                p = os.path.join(root, fn)
+                consumers[p] = io.open(p, encoding='utf-8').read()
+    for fn in sorted(os.listdir(os.path.join(ROOT, 'tools'))):
+        if fn.endswith('.mjs'):
+            p = os.path.join(ROOT, 'tools', fn)
+            consumers[p] = io.open(p, encoding='utf-8').read()
+    consumers[HTML] = html
+
+    for p, src in consumers.items():
+        if not p.endswith('.js') or not p.startswith(JS):
+            continue
+        base = os.path.basename(p)
+        if base.startswith(DEAD_EXPORT_SKIP):
+            continue
+        for m in re.finditer(r'export\s+(?:async\s+)?(?:const|let|var|function|class)\s+([A-Za-z0-9_$]+)',
+                             src):
+            name = m.group(1)
+            pat = re.compile(r'\b' + re.escape(name) + r'\b')
+            refs = 0
+            for cp, csrc in consumers.items():
+                for line in csrc.splitlines():
+                    if cp == p and re.match(
+                            r'\s*export\s+(?:async\s+)?(?:const|let|var|function|class)\s+'
+                            + re.escape(name) + r'\b', line):
+                        continue          # 定义行本身不算引用
+                    refs += len(pat.findall(line))
+            if refs == 0:
+                problems.append('%s: 导出 %s 全仓无人引用（死导出，可删）' % (base, name))
+except Exception as e:
+    problems.append('死导出校验失败（%s）' % e)
+
 print('检查完成：%d 个问题' % len(problems))
 for p in problems:
     print('  ✗', p)

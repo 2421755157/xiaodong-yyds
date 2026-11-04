@@ -117,8 +117,6 @@ function bumpTex(key, o = {}) {
 }
 
 // ─── 对外：各类地表纹理 ───
-const hexToRGB = h => [((h >> 16) & 255) / 255, ((h >> 8) & 255) / 255, (h & 255) / 255];
-
 export function groundTexture(kind, seed = 3) {
   const cfg = {
     grass: { base: [0.19, 0.32, 0.16], tint: [0.34, 0.44, 0.18], amp: 0.55, scale: 10, tintAmt: 0.55 },
@@ -132,29 +130,6 @@ export function groundTexture(kind, seed = 3) {
     roof:  { base: [0.16, 0.16, 0.17], tint: [0.28, 0.28, 0.30], amp: 0.35, scale: 8, tintAmt: 0.4 },
   }[kind] || { base: [0.3, 0.3, 0.3] };
   return colorNoiseTex(kind + ':' + seed, cfg.base, Object.assign({ seed }, cfg));
-}
-
-// 木纹：横向条带
-export function woodTexture(seed = 5) {
-  return memo('wood:' + seed, () => {
-    const size = 128, c = mkCanvas(size), g = c.getContext('2d');
-    const img = g.createImageData(size, size), d = img.data;
-    for (let y = 0; y < size; y++) {
-      for (let x = 0; x < size; x++) {
-        const warp = fbm(x / 26, y / 6, seed, 3, 8) * 5;
-        const rings = Math.sin((y + warp) * 0.55) * 0.5 + 0.5;
-        const n = fbm(x / 6, y / 6, seed + 9, 3, 16);
-        const k = 0.55 + rings * 0.3 + n * 0.2;
-        const i = (y * size + x) * 4;
-        d[i] = Math.min(255, 0.34 * k * 255) | 0;
-        d[i + 1] = Math.min(255, 0.23 * k * 255) | 0;
-        d[i + 2] = Math.min(255, 0.15 * k * 255) | 0;
-        d[i + 3] = 255;
-      }
-    }
-    g.putImageData(img, 0, 0);
-    return c;
-  });
 }
 
 // 瓦片：横向排列的半圆柱亮暗
@@ -174,29 +149,6 @@ export function roofTexture(seed = 7) {
         d[i] = Math.min(255, k * 78) | 0;
         d[i + 1] = Math.min(255, k * 80) | 0;
         d[i + 2] = Math.min(255, k * 88) | 0;
-        d[i + 3] = 255;
-      }
-    }
-    g.putImageData(img, 0, 0);
-    return c;
-  });
-}
-
-// 白墙：斑驳
-export function wallTexture(seed = 13) {
-  return memo('wall:' + seed, () => {
-    const size = 128, c = mkCanvas(size), g = c.getContext('2d');
-    const img = g.createImageData(size, size), d = img.data;
-    for (let y = 0; y < size; y++) {
-      for (let x = 0; x < size; x++) {
-        const n = fbm(x / 20, y / 20, seed, 4, 8);
-        const stain = Math.pow(fbm(x / 7, y / 30, seed + 5, 3, 16), 2) * 0.35;
-        const grain = (hash2(x, y, 3) - 0.5) * 0.05;
-        const k = 0.78 + n * 0.24 - stain + grain;
-        const i = (y * size + x) * 4;
-        d[i] = Math.min(255, k * 235) | 0;
-        d[i + 1] = Math.min(255, k * 230) | 0;
-        d[i + 2] = Math.min(255, k * 214) | 0;
         d[i + 3] = 255;
       }
     }
@@ -300,29 +252,6 @@ export function grassBladeTexture(size = 64) {
   });
 }
 
-// ─── 树冠 alpha 贴图（团状叶簇，让树不那么"球"）───
-export function leafClumpTexture(size = 128) {
-  return memo('leaf:' + size, () => {
-    const c = mkCanvas(size), g = c.getContext('2d');
-    g.clearRect(0, 0, size, size);
-    for (let i = 0; i < 26; i++) {
-      const a = hash2(i, 1, 21) * Math.PI * 2;
-      const r = Math.pow(hash2(i, 2, 22), 0.6) * size * 0.36;
-      const x = size / 2 + Math.cos(a) * r;
-      const y = size / 2 + Math.sin(a) * r * 0.85;
-      const rad = size * (0.09 + hash2(i, 3, 23) * 0.11);
-      const lum = 0.62 + hash2(i, 4, 24) * 0.38;
-      const grd = g.createRadialGradient(x - rad * 0.3, y - rad * 0.3, 0, x, y, rad);
-      grd.addColorStop(0, 'rgba(' + (150 * lum | 0) + ',' + (190 * lum | 0) + ',' + (110 * lum | 0) + ',1)');
-      grd.addColorStop(0.65, 'rgba(' + (92 * lum | 0) + ',' + (126 * lum | 0) + ',' + (66 * lum | 0) + ',0.98)');
-      grd.addColorStop(1, 'rgba(40,64,32,0)');
-      g.fillStyle = grd;
-      g.beginPath(); g.arc(x, y, rad, 0, Math.PI * 2); g.fill();
-    }
-    return c;
-  });
-}
-
 // ─── 统一取纹理对象（带 repeat）───
 export function tex(kind, repeat = 4, seed = 3) {
   return memo('T:' + kind + ':' + repeat + ':' + seed, () => finish(groundTexture(kind, seed), repeat, true));
@@ -332,9 +261,6 @@ export function bump(kind, repeat = 4, scale = 0.35) {
     const t = finish(bumpTex(kind, { crack: kind === 'rock' || kind === 'stone' }), repeat, false);
     return t;
   });
-}
-export function repeatTex(canvas, repeat, srgb = true) {
-  return finish(canvas, repeat, srgb);
 }
 
 // ─── 材质工厂：带纹理的标准材质 ───
@@ -355,4 +281,4 @@ export function surfaceMat(kind, color, opt = {}) {
   return m;
 }
 
-export { fbm, vnoise, hash2, hexToRGB, finish };
+export { fbm, hash2, finish };

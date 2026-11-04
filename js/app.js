@@ -8,11 +8,11 @@
 import { store, titleFor } from './store.js';
 import { PROVINCES, SPOT_TYPE, stats } from './china-data.js';
 import { resolveTheme, THEME_ORDER, themeLabel, PRO_SCENES, spotSeed, setQuality } from './scenes-meta.js';
-import { isMobile } from './env.js';
+import { isMobile, hasWebGL } from './env.js';
 import { loadThreeRuntime, loadPanorama, warmUpThree } from './three-loader.js';
 import { analyzeToday, drawMoodCard } from './mood.js';
 import { FORTUNES, greetingFor, SPOT_MEMES, expandDesc, pickN, spotDescKey, pickSpotDesc } from './lexicon.js';
-import { getSpotImages, getSpotCover, galleryReady, ensureGallery, enrichSpotImages,
+import { getSpotImages, getSpotCover, galleryReady, ensureGallery,
          loadSpotImages, spotImagesReady } from './spot-images.js';
 import { streetViewFor, hasStreetView, POIID_DB } from './streetview.js';
 import { staticMapUrl, hasStaticMap, MAP_VIEWS, mapViewByKey, baiduMapLink } from './staticmap.js';
@@ -212,8 +212,8 @@ function renderHome() {
 }
 
 // ── 首页数据条：数字在构建期算好（tools/build_home_stats.mjs）──
-// 原来这里 load 三个懒加载库再把数字数出来，首屏就白拉约 800KB
-// （图库 118KB + 图组 100KB + 简介库 596KB），而它们真正用得上是在景点层。
+// 原来这里 load 三个懒加载库再把数字数出来，首屏就白拉约 970KB
+// （图库 120KB + 图组 239KB + 简介库 614KB），而它们真正用得上是在景点层。
 function renderHomeStats(st) {
   const box = $('#hero-stats');
   if (!box) return;
@@ -228,14 +228,14 @@ function renderHomeStats(st) {
 }
 
 // 面包屑 + 内容区
-// 之所以是 async：景点列表要用真实封面，需等图库就绪（约 118KB）。
+// 之所以是 async：景点列表要用真实封面，需等图库就绪（约 120KB）。
 // 省/市层用本地封面图，不等 —— 首屏关键路径上没有任何图库开销。
 let navSeq = 0;          // 渲染令牌：async 渲染期间若用户又切了层级，让旧的那次作废
 async function renderNav() {
   const seq = ++navSeq;
   const grid = $('#spot-grid');
   if (nav.level === 'spot' && !spotImagesReady()) {
-    // 冷缓存下要等 372KB 图库。给一个延迟 300ms 才出现的弱提示：
+    // 冷缓存下要等 120KB 图库。给一个延迟 300ms 才出现的弱提示：
     // 快的情况根本察觉不到，慢的时候用户至少知道在加载而不是卡死。
     const hint = setTimeout(() => { if (seq === navSeq) grid.style.opacity = '0.4'; }, 300);
     // 先不动已渲染的旧网格，等库到了再一次性替换，避免中间夹一屏占位图
@@ -881,7 +881,7 @@ function bindCoverPicker(prov, city, spot) {
 // ═════════ 景点详情弹窗 ═════════
 async function openSpot(prov, city, spot) {
   // 只等简介库（详情页要立刻显示真实简介）；
-  // 图集库 282KB 放后台加载 —— 之前 await 它会让整个弹窗卡住
+  // 图集库 239KB 放后台加载 —— 之前 await 它会让整个弹窗卡住
   // 近 1 秒（用户点景点的第一眼延迟）。
   await DESC_DB.load();
   ensureGallery();
@@ -902,7 +902,7 @@ async function openSpot(prov, city, spot) {
     }
   }
   const coverImg = coverEl.querySelector('img');
-  // 从分享链接直达景点时，图片库（118KB，懒加载）往往还没就绪，
+  // 从分享链接直达景点时，图片库（120KB，懒加载）往往还没就绪，
   // getSpotCover 就会返回 canvas 占位图，而且此前不会回填 —— 用户看到的是
   // 一张渐变当封面。这里不阻塞弹窗，库就绪后若还停在这一处就换成真实照片。
   if (!cover && !spotImagesReady()) {
@@ -952,11 +952,10 @@ async function openSpot(prov, city, spot) {
   const memes = SPOT_MEMES[spot.t] || SPOT_MEMES.park;
   const picked = pickN(memes, Math.min(3, memes.length), seed);
   $('#intro-memes').innerHTML = picked.map(m => '<div class="meme-item">「' + m + '」</div>').join('');
-  // 图集 3 张：优先 Wikimedia 真实景点图（静态库），缺失/地区泛图则运行时精搜升级
+  // 图集 3 张：取静态实景库（主图 + 补充图组），不够的格子用类型渐变占位
   const gal = $('#intro-gallery');
   const caps = ['一隅 · 此景', '二景 · 此处', '三瞥 · 此间'];
   const galImgs = [];
-  // 画图集：把某张图放到第 i 格（复用已有 <img> 节点，只换 src，不重建 DOM）
   // 图片是实景才可点：占位/失败图不该响应点击，也不该出现在 Tab 序列里
   const syncZoomable = (fig, url) => {
     const ok = !!url && !url.startsWith('data:');
@@ -968,15 +967,6 @@ async function openSpot(prov, city, spot) {
       fig.removeAttribute('role');
       fig.removeAttribute('tabindex');
     }
-  };
-  const paintSlot = (i, url) => {
-    const img = galImgs[i];
-    if (!img || !url) return;
-    const fig = img.parentElement;
-    syncZoomable(fig, url);
-    img.style.display = '';
-    img.setAttribute('data-src', url);
-    img.src = url;
   };
   const buildGallery = () => {
     gal.innerHTML = '';
@@ -1028,13 +1018,9 @@ async function openSpot(prov, city, spot) {
       if (idx >= 0) openLightbox(imgs.map(i => i.src), idx);
     });
   }
-  // 异步补搜：拿到更精准的实景图后替换（含地区泛图升级）
-  enrichSpotImages(spot.n, prov.n, spot.t, 3).then(urls => {
-    urls.slice(0, 3).forEach((u, i) => { if (galImgs[i] && u && !u.startsWith('data:')) paintSlot(i, u); });
-  });
   // 这里原本会再向 zh.wikipedia.org 要一次摘要。该域名在国内网络不可达
   // （请求挂到 8 秒超时才失败，控制台还会留一条网络错误），而本地简介库
-  // 已覆盖 1744/1836，剩下的用 expandDesc 的模板文案就够了 —— 直接去掉。
+  // 已覆盖 1762/1892，剩下的用 expandDesc 的模板文案就够了 —— 直接去掉。
   // meta
   $('#intro-meta').innerHTML = [
     ['所在', prov.n + ' ' + city.n],
@@ -1081,6 +1067,21 @@ async function openSpot(prov, city, spot) {
 
 // ═══ 实景看板：把景点真实照片立进 3D 场景，走到跟前就看到真实样貌 ═══
 let heroBillboard = null;
+
+// 看板的贴图与材质是**每次进入景点现做**的（不像场景材质那样走全局缓存），
+// 所以必须显式释放：只 dispose 几何体的话，一张 1024×768 的 GPU 贴图会一直留着。
+// 走「切换时辰」这条路时，每次切都会重建一次看板，不释放就是一次几 MB 的净增。
+function disposeBillboard(mesh) {
+  if (!mesh) return;
+  mesh.traverse(o => {
+    if (o.material) {
+      if (o.material.map) o.material.map.dispose();
+      o.material.dispose();
+    }
+    if (o.geometry) o.geometry.dispose();
+  });
+}
+
 function addHeroBillboard(scene, url, spawn) {
   if (!url || url.startsWith('data:')) return null;
   try {
@@ -1122,7 +1123,12 @@ let raycaster = null;
 let coverShotAt = 0;
 let composer = null, bloomPass = null;
 
-// 3D 运行时加载态：并发去重（连点两次不会初始化两遍），失败后清空以便重试
+// 只读诊断钩子：E2E 用它核对「进出 3D / 切换时辰」有没有累积 GPU 资源
+// （看板贴图是每次现做的，漏 dispose 时这里的 textures 只增不减）。
+window.__nsMem = () => (renderer
+  ? { textures: renderer.info.memory.textures, geometries: renderer.info.memory.geometries }
+  : null);
+
 // 3D 运行时加载态：并发去重（连点两次不会初始化两遍），失败后清空以便重试
 let rendererPromise = null;
 
@@ -1193,8 +1199,10 @@ async function enterSpot(prov, city, spot) {
   try {
     await ensureRenderer();
   } catch (e) {
-    // three 走 CDN，断网/被拦时不能白屏，得告诉用户发生了什么
-    toast('3D 引擎加载失败，请检查网络后重试', 3200);
+    // 两种失败要分开说：设备/浏览器压根不支持 WebGL 时重试多少次都一样，
+    // 笼统报「请检查网络」会让用户反复点（老 IE 内核、禁用了硬件加速的浏览器都属这种）。
+    if (!hasWebGL()) toast('当前浏览器不支持 WebGL，无法进入 3D 漫游', 3600);
+    else toast('3D 引擎加载失败，请检查网络后重试', 3200);
     return;
   }
   activeSpot = { name: spot.n, tag: SPOT_TYPE[spot.t]?.label || '' };
@@ -1237,16 +1245,38 @@ async function enterSpot(prov, city, spot) {
   setTimeout(() => toast('场景由程序实时生成，仅供娱乐参考，不代表实景', 3500), 800);
 }
 
+// 释放当前 3D 场景占用的 GPU 资源。
+// 场景里的材质与贴图大多走全局缓存（matT / textures.js 的 memo），不能碰；
+// 每次建场景现做、必须显式释放的是两样：实景看板（贴图 + 材质）和 PMREM 环境贴图。
+// 它们都不在缓存里，漏 dispose 就是每次进出/切时辰净增几 MB 显存。
+function releaseScene() {
+  if (heroBillboard) {
+    built && built.scene && built.scene.remove(heroBillboard);
+    disposeBillboard(heroBillboard);
+    heroBillboard = null;
+  }
+  if (built) {
+    built.scene.traverse(o => {
+      if (o.geometry) o.geometry.dispose();
+      // 阴影贴图是首次渲染时按需创建的 render target（2048²），
+      // 跟着几何体一起烂在显存里 —— 每次重建场景就多一张。
+      if (o.isLight && o.shadow && o.shadow.map) {
+        o.shadow.map.dispose();
+        o.shadow.map = null;
+      }
+    });
+    if (built.envRT) built.envRT.dispose();
+    built = null;
+  }
+}
+
 function leaveSpot() {
   running = false;
   roamer.enabled = false;
   roamer.touchRunning = false;
   roamer.unlock();
   if (isMobile) $('#touch-controls').hidden = true;
-  if (built) {
-    built.scene.traverse(o => { if (o.geometry) o.geometry.dispose(); });
-    built = null;
-  }
+  releaseScene();
   fpMarkers = [];
   closeNote();
   $('#spot-detail-modal') && ($('#spot-detail-modal').hidden = true);
@@ -1835,13 +1865,8 @@ function saveProfile() {
 
 function leaveSpotSilent() {
   running = false;
-  if (heroBillboard) {
-    built && built.scene && built.scene.remove(heroBillboard);
-    heroBillboard.geometry && heroBillboard.geometry.dispose();
-    heroBillboard = null;
-  }
+  releaseScene();
   roamer.enabled = false;
-  if (built) { built.scene.traverse(o => { if (o.geometry) o.geometry.dispose(); }); built = null; }
   fpMarkers = [];
 }
 
@@ -1962,7 +1987,7 @@ if (store.data.user) {
 } else { show('#gate'); startGateParticles(); }
 
 // 首屏已经出来了，这时再空闲预热：
-//  · 景点图库（372KB）—— 用户点进景点列表时通常已就绪，不用干等
+//  · 景点图库（120KB）—— 用户点进景点列表时通常已就绪，不用干等
 //  · 3D 运行时（three 内核 257KB）—— 点「进入 3D 漫游」时不用干等
 // 两者都不占用首屏关键路径。
 warmUpSpotImages();

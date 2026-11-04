@@ -1,10 +1,7 @@
 // ═══ 第一人称漫游：指针锁定 + WASD + 触摸摇杆 + 地面贴合 + 碰撞 ═══
 import * as THREE from 'three';
-// isMobile 原本定义在这里，但 app.js 首屏只需要它、却因此静态拖入了 three。
-// 现移到零依赖的 env.js，这里 import 回来保证老导出仍可用。
+// isMobile 定义在零依赖的 env.js（app.js 首屏要用，不能因它拖入 three），这里只取值使用。
 import { isMobile } from './env.js';
-
-export { isMobile };
 
 export class Roamer {
   constructor(camera, dom) {

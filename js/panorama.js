@@ -238,5 +238,3 @@ export function closePanorama() {
   if (box) { box.hidden = true; box.querySelector('.pano-stage').innerHTML = ''; }
   document.body.style.overflow = '';
 }
-
-export function panoramaOpen() { return !!S; }

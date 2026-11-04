@@ -5,7 +5,7 @@
 //  3) 主题化 SVG 占位（终极降级，按类型生成渐变，非随机 picsum）
 import { lazyDB } from './lazy-db.js';
 
-// 静态图库 372KB（raw）/ 66KB（gzip）——是首屏最大的一块，但首屏只渲染省份网格，
+// 静态图库 120KB（raw）/ 36KB（gzip）——是首屏最大的一块，但首屏只渲染省份网格，
 // 用的是渐变封面，一张景点照片都不需要。改成按需加载：
 //   · 进入「景点列表」层前 await loadSpotImages()（renderNav 里）
 //   · 首屏空闲时 warmUp 预热，用户点进去时基本已就绪
@@ -85,10 +85,6 @@ function normImgUrl(u) {
 }
 
 // 过滤明显非风景（地图/标志/扫描件等）
-
-// 文件名与景点名的相关度：完整包含 100+，最长公共子串 ×4（与构建期同规则）
-// DP 只需要上一行 → 用两个一维数组滚动，比每行 new Array 省掉 O(n) 次分配
-// （原实现每行都 new Array(b.length+1).fill(0)，n 是文件名长度）
 // ── 同步：封面（卡片 / 3D 详情用）──
 export function getSpotCover(spotName, provName, type) {
   const e = IMAGES_DB.get(spotName);
@@ -102,7 +98,7 @@ export function getSpotCover(spotName, provName, type) {
 }
 
 // ── 同步：图集（详情弹窗，count 张）──
-// ── 补充图组：独立文件懒加载（282KB，不进首屏）──
+// ── 补充图组：独立文件懒加载（239KB，不进首屏）──
 const GALLERY_DB = lazyDB(() => import('./spot-gallery-db.js'), m => m.SPOT_GALLERY_DB);
 export function ensureGallery() {
   return GALLERY_DB.load();
@@ -146,15 +142,4 @@ export function getSpotImages(spotName, provName, count = 3, type) {
   // 全部走 push 会被去重掉 → 补位时直接 push，保留"每格一张"的视觉
   while (out.length < count) out.push(placeholder(spotName, type));
   return out.slice(0, count);
-}
-
-// ── 异步：补搜 / 升级（打开详情时调用）──
-// 返回 Promise<urls[]>。网络补搜已停用（见下），现在只是静态库的直通。
-// ── 运行时补搜：已停用 ──
-// 原来这里会向 commons.wikimedia.org 搜图补足图集。该域名在国内网络不可达，
-// 图不足 3 张的景点每打开一次就挂到 8 秒超时，控制台还留 net::ERR_TIMED_OUT，
-// 用户看到的是"加载半天再降级"——收益为零。静态图组已覆盖 1768/1836，
-// 剩下用占位图（渐变+地名）反而更诚实。函数保留是为了不改调用方。
-export async function enrichSpotImages(spotName, provName, type, count = 3) {
-  return getSpotImages(spotName, provName, count, type);
 }

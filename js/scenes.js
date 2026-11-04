@@ -7,7 +7,6 @@ import {
 } from './textures.js';
 // 轻量层（零依赖）：画质档位 / 时辰主题 / 种子 / 场景映射已搬到 scenes-meta.js，
 // 首屏只需要那些纯数据，不该为了它们下载整个 three。
-// 这里只取本模块内部真正用到的三个；对外导出见文件末尾的「兼容再导出」。
 import { Q, THEMES, rng } from './scenes-meta.js';
 
 // ─── 材质缓存 ───
@@ -572,13 +571,16 @@ export function buildScene(sceneKey, themeKey, renderer, seed = 0) {
   // 天空 / 日月 / 星 / 云
   scene.add(makeSky(theme));
   // 环境贴图：PMREM 从天空生成，给水面/金属反射
+  // 这张 render target 是**每次建场景现生成**的，不走纹理缓存，所以要把句柄带出去，
+  // 由调用方在离开场景时 dispose —— 否则每切一次时辰就多留一块 GPU 显存。
+  let envRT = null;
   if (renderer) {
     try {
       const pmrem = new THREE.PMREMGenerator(renderer);
       pmrem.compileEquirectangularShader();
       const envScene = new THREE.Scene();
       envScene.add(makeSky(theme));
-      const envRT = pmrem.fromScene(envScene, 0, 0.1, 1000);
+      envRT = pmrem.fromScene(envScene, 0, 0.1, 1000);
       scene.environment = envRT.texture;
       pmrem.dispose();
     } catch (e) { /* 老设备降级 */ }
@@ -643,7 +645,7 @@ export function buildScene(sceneKey, themeKey, renderer, seed = 0) {
   }
 
   return {
-    scene, theme,
+    scene, theme, envRT,
     hotspots: built.hotspots,
     spawn: built.spawn,
     boundR: built.boundR,
@@ -1854,7 +1856,3 @@ const TYPE_BUILDERS = {
   island: buildCoast,
   temple: buildGarden, park: buildGarden, ruin: buildTown, modern: buildCity,
 };
-
-// ─── 兼容再导出：老写法 `import { PRO_SCENES, spotSeed } from './scenes.js'` 仍可用 ───
-export { Q, setQuality, THEMES, resolveTheme, THEME_ORDER, themeLabel,
-         PRO_SCENES, spotSeed, hashStr } from './scenes-meta.js';

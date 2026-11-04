@@ -6,7 +6,7 @@
 export const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
   || ('ontouchstart' in window && window.innerWidth < 1024);
 
-/** 是否支持 WebGL（3D 入口按此决定是否显示，避免点了才发现跑不起来） */
+/** 是否支持 WebGL：3D 初始化失败时用它区分「设备不支持」和「网络加载失败」 */
 export function hasWebGL() {
   try {
     const c = document.createElement('canvas');
