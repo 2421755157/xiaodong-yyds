@@ -193,3 +193,9 @@ export function pickSpotDesc(read, key, name, fallback) {
   if (!read) return fallback || '';
   return read(key) || read(name) || fallback || '';
 }
+
+/** 取景点坐标：键规则与简介库相同，先查「省|市|名」再退到裸名 */
+export function pickCoord(read, key, name) {
+  if (!read) return null;
+  return read(key) || read(name) || null;
+}

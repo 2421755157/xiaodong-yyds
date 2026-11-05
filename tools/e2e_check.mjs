@@ -607,21 +607,58 @@ function check(name, ok, detail = '') {
   check('3D 场景无报错', errsInScene.length === 0, errsInScene.length ? errsInScene.slice(0, 2).map(e => (e.text || '').slice(0, 80)).join(' | ') : '干净');
 
   // 7b-2) GPU 资源不累积
-  //      实景看板（主图贴图 + 3 个材质）是每次进景点现做的，不在场景材质缓存里，
-  //      漏了 dispose 就会每切一次时辰净增一张 1024×768 贴图（约 3MB 显存）。
+  //      实景看板（主图贴图 + 3 个材质）和 PMREM 用的临时天空球都是每次重建现做的，
+  //      不在场景材质缓存里，漏 dispose 就是每切一次时辰净增（约 3MB 贴图 / 一个球几何体）。
   //      旧版本 leaveSpotSilent 只 dispose 了几何体，这里就是那个漏点的回归测试。
-  const mem0 = await cdp.eval("window.__nsMem ? window.__nsMem() : null");
-  const tag0 = await cdp.eval("document.getElementById('hud-spot-tag').textContent");
-  await cdp.eval("document.getElementById('btn-theme').click()");
-  await sleep(1000);
-  await cdp.eval("document.getElementById('btn-theme').click()");
-  await sleep(1000);
-  const mem1 = await cdp.eval("window.__nsMem ? window.__nsMem() : null");
-  const tag1 = await cdp.eval("document.getElementById('hud-spot-tag').textContent");
-  check('切换时辰后场景已重建', !!tag1 && tag1 !== tag0, `${tag0} → ${tag1}`);
+  //
+  //      取样口径被三次偶发失败修正过，别改回去：
+  //      ① 先等计数稳定再取基线，别猜时间；
+  //      ② 走完一整圈回到同一时辰再比 —— 不同时辰布景本来就不同（夜有星、昼有云），
+  //         跨时辰比既会冤枉人，也漏得掉「每次重建 +1」这种小泄漏；
+  //      ③ 比之前先空跑一圈预热。云、草地、屋瓦、光晕这些贴图是首次用到时才建、
+  //         之后常驻模块级缓存（这是有意为之，不算泄漏）。第一次走到白天就会多出
+  //         一张云贴图，若拿预热前的数当基线，回程看着就像"涨了一张"（20→21 的假失败）。
+  const settleMem = async () => {
+    let prev = await cdp.eval("window.__nsMem ? window.__nsMem() : null");
+    for (let i = 0; i < 15; i++) {
+      await sleep(400);
+      const now = await cdp.eval("window.__nsMem ? window.__nsMem() : null");
+      if (!now || !prev) return null;
+      if (now.textures === prev.textures && now.geometries === prev.geometries) return now;
+      prev = now;
+    }
+    return prev;
+  };
+  const themeOrder = await cdp.eval("import('./js/scenes-meta.js').then(m => m.THEME_ORDER)");
+  const cycleOrder = Array.isArray(themeOrder) && themeOrder.length ? themeOrder.length : 4;
+  let tagCur = await cdp.eval("document.getElementById('hud-spot-tag').textContent");
+  // 切一次时辰并等 HUD 标签真的换掉（重建是异步的，不猜时间）
+  const clickTheme = async () => {
+    await cdp.eval("document.getElementById('btn-theme').click()");
+    const moved = await waitFor(async () => {
+      const t = await cdp.eval("document.getElementById('hud-spot-tag').textContent");
+      return t && t !== tagCur ? t : false;
+    }, 6000);
+    if (moved) tagCur = moved;
+    return !!moved;
+  };
+
+  for (let i = 0; i < cycleOrder; i++) await clickTheme();   // 预热：把常驻缓存贴图都点出来
+  const mem0 = await settleMem();
+  const tag0 = tagCur;
+  let rebuilt = 0;
+  for (let i = 0; i < cycleOrder; i++) if (await clickTheme()) rebuilt++;
+  const mem1 = await settleMem();
+  check('切换时辰后场景已重建', rebuilt === cycleOrder, `${tag0} → ${tagCur}，重建 ${rebuilt}/${cycleOrder} 次`);
+  check('切换一圈回到同一时辰', tagCur === tag0, `${tag0} vs ${tagCur}`);
   check('切换时辰不累积 GPU 贴图',
-    !!(mem0 && mem1) && mem1.textures <= mem0.textures,
+    !!(mem0 && mem1) && mem1.textures === mem0.textures,
     `贴图 ${mem0 && mem0.textures} → ${mem1 && mem1.textures}`);
+  // 几何体数会随布景随机量小幅浮动（古城类模板按概率增减民居），允许 ±2；
+  // 真实泄漏是每次重建 +1，一圈 +4，照样拦得住。
+  const geoDelta = (mem0 && mem1) ? mem1.geometries - mem0.geometries : NaN;
+  check('切换时辰不累积几何体', Math.abs(geoDelta) <= 2,
+    `几何体 ${mem0 && mem0.geometries} → ${mem1 && mem1.geometries}（Δ${geoDelta}）`);
 
   // 7c) 场景截图不能顶掉真实封面
   //     老版本在进入 3D 2.6s 后会把 canvas 截成 400×240 JPEG 存成景点封面，
@@ -728,6 +765,39 @@ function check(name, ok, detail = '') {
   check('同名景点简介不串城（惠州西湖）',
     hz.name === '西湖' && hz.desc.indexOf('惠州') >= 0 && hz.desc.indexOf('杭州') < 0,
     hz.desc.slice(0, 34) || '(无简介)');
+
+  // 9e) 重名景点的坐标也不能串城
+  //     坐标库原先和简介库一样只按景点名做键，惠州西湖拿到的是杭州那条
+  //     （120.14,30.24），小地图一点开就把人放到杭州西湖边上。
+  //     现在按「省|市|名」分键，判不出归属的宁可不显示。
+  const mapLocationOf = async () => {
+    const raw = await cdp.eval(`(() => {
+      const box = document.getElementById('intro-map');
+      const img = document.getElementById('map-img');
+      const src = (img && img.src) || '';
+      let loc = null;
+      try { loc = new URL(src).searchParams.get('location'); } catch (e) { loc = null; }
+      const xy = loc ? loc.split(',').map(Number) : null;
+      return JSON.stringify({ hidden: !box || box.hidden, loc: xy && xy.length === 2 ? xy : null });
+    })()`);
+    return JSON.parse(raw);
+  };
+  await sleep(1200);
+  const hzMap = await mapLocationOf();
+  const hzNear = hzMap.loc && Math.abs(hzMap.loc[0] - 114.41) < 1.5
+    && Math.abs(hzMap.loc[1] - 23.11) < 1.5;
+  check('惠州西湖的小地图不指向杭州',
+    hzMap.hidden || !!hzNear,
+    hzMap.hidden ? '未显示（该处无本地坐标）' : 'location=' + String(hzMap.loc));
+
+  const hzHome = await openSpotByHash('浙江', '杭州', '西湖');
+  await sleep(1500);
+  const hzHomeMap = await mapLocationOf();
+  const hzHomeNear = hzHomeMap.loc && Math.abs(hzHomeMap.loc[0] - 120.15) < 0.6
+    && Math.abs(hzHomeMap.loc[1] - 30.25) < 0.6;
+  check('杭州西湖的小地图落在杭州',
+    hzHome.name === '西湖' && !!hzHomeNear,
+    hzHomeMap.hidden ? '小地图未显示' : 'location=' + String(hzHomeMap.loc));
 
   const hh = await openSpotByHash('内蒙古', '呼和浩特', '大昭寺');
   check('无本地词条时不套外地简介（呼和浩特）',

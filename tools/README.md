@@ -32,16 +32,18 @@ tools/
 ├── build_pinyin_db.py     生成拼音索引（gugong / bdlg 这类输入也能搜）
 ├── fetch_long_desc.py    抓历史沿革长介绍 → js/long-db-0..7.js（8 片按需加载）
 ├── fetch_panorama.py     抓真实全景图 → js/panorama-db.js（sphere/wide）
-├── fetch_coords.py       抓景点坐标 → js/coords-db.js（维基 + Wikidata，无需密钥）
+├── fetch_coords.py       抓景点坐标 → js/coords-db.js（维基 + Wikidata + Photon，无需密钥）
 ├── resolve_disambig.py   消歧义词条重定向（「盘山可以指：…」→ 正确条目）
 ├── check_integrity.py    静态集成检查（DOM id / import 路径 / 导出名）
-└── e2e_check.mjs         端到端测试（CDP 直连浏览器，20 项交互断言）
+└── e2e_check.mjs         端到端测试（CDP 直连浏览器，72 项交互断言）
 
 data/                     原始缓存（断点续跑用，可直接提交进仓库）
-├── spots_uniq.json        1836 个去重景点索引
+├── spots_uniq.json        1891 个去重景点索引
 ├── regions_uniq.json      388 个省市索引
 ├── desc_db.json           景点简介原始数据
 ├── region_db.json         省市简介原始数据
+├── coords.json            景点坐标原始数据（重名景点按「省|市|名」分键）
+├── coords_tried.json      查过但确实没有坐标的键（下轮不再重复请求）
 └── img_db.json            图片原始数据（含补充图组）
 ```
 
@@ -49,7 +51,7 @@ data/                     原始缓存（断点续跑用，可直接提交进仓
 
 ```bash
 python tools/check_integrity.py    # 0 个问题才提交
-node tools/e2e_check.mjs           # 20/20 才提交（需先起服务与浏览器调试端口）
+node tools/e2e_check.mjs           # 72/72 才提交（需先起服务与浏览器调试端口）
 ```
 它会检查：JS 里引用的每个 `$('#id')` 在 index.html 里是否存在、
 每条 `import` 路径是否有对应文件、每个具名导入在目标文件里是否真的被导出

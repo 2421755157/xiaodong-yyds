@@ -17,7 +17,7 @@ import * as sv from '../js/streetview.js';
 import * as si from '../js/spot-images.js';
 import * as meta from '../js/scenes-meta.js';
 import * as tl from '../js/three-loader.js';
-import { spotDescKey, pickSpotDesc } from '../js/lexicon.js';
+import { spotDescKey, pickSpotDesc, pickCoord } from '../js/lexicon.js';
 import { PROVINCES } from '../js/china-data.js';
 
 let passed = 0, failed = 0;
@@ -351,6 +351,22 @@ await test('pickSpotDesc: 库里没有时用手写一句话，不返回空', () 
   assert.equal(pickSpotDesc(null, 'k', 'n', 'd'), 'd');
 });
 
+// ── 坐标库的键与回退（同名景点不能共用一条坐标）──
+// 「南山」在烟台 / 邵阳 / 乌鲁木齐各有一处，坐标库原先只按名字做键，
+// 三处共用一条，等于把其中两处的游客导航到第三处去。
+await test('pickCoord: 城市限定键优先于裸名', () => {
+  const db = { '南山': [87.6, 43.7], '新疆|乌鲁木齐|南山': [87.4, 43.4] };
+  assert.deepEqual(pickCoord(k => db[k], '新疆|乌鲁木齐|南山', '南山'), [87.4, 43.4]);
+});
+await test('pickCoord: 没有分城条目时退到裸名', () => {
+  const db = { '故宫': [116.39, 39.91] };
+  assert.deepEqual(pickCoord(k => db[k], '北京|北京|故宫', '故宫'), [116.39, 39.91]);
+});
+await test('pickCoord: 都没有时返回 null（详情页据此隐藏小地图）', () => {
+  assert.equal(pickCoord(k => ({}[k]), 'x|y|z', 'q'), null);
+  assert.equal(pickCoord(null, 'k', 'n'), null);
+});
+
 // ── 简介库的数据不变量 ──
 // 重名景点一旦又出现裸名键，就说明有城市会再次捡到别人的简介。
 await test('简介库: 重名景点不得残留裸名键', async () => {
@@ -375,6 +391,47 @@ await test('简介库: 分城条目讲的是本地那一处', async () => {
     assert.ok(!txt.includes(other), city + name + ' 的简介不该提到' + other);
   }
 });
+await test('坐标库: 重名景点不残留裸名键', async () => {
+  const { COORD_DB } = await import('../js/coords-db.js');
+  const cnt = {};
+  for (const p of PROVINCES) for (const c of p.cities) for (const s of c.spots) {
+    cnt[s.n] = (cnt[s.n] || 0) + 1;
+  }
+  const leaked = Object.keys(cnt).filter(n => cnt[n] > 1 && COORD_DB[n]);
+  assert.deepEqual(leaked, [], '仍是裸名键的重名景点：' + leaked.slice(0, 5).join('、'));
+});
+await test('坐标库: 重名景点各处的坐标互不相同', async () => {
+  const { COORD_DB } = await import('../js/coords-db.js');
+  const byName = {};
+  for (const k of Object.keys(COORD_DB)) {
+    const i = k.lastIndexOf('|');
+    if (i < 0) continue;
+    const n = k.slice(i + 1);
+    (byName[n] = byName[n] || []).push(COORD_DB[k].join(','));
+  }
+  const same = Object.entries(byName).filter(([, v]) => v.length > 1 && new Set(v).size === 1);
+  assert.deepEqual(same.map(x => x[0]), [], '这些重名景点各处仍共用同一条坐标');
+});
+
+// 同名景点在境外到处都是，维基按名字取词条时命中过一堆：
+// 「水晶宫」是伦敦的、「大峡谷」是科罗拉多的、「死海」在约旦、
+// 「鲁朗」在法国、「长岛」是纽约长岛。坐标出了境，小地图就把用户送到国外。
+await test('坐标库: 没有落在国境之外的坐标', async () => {
+  const { COORD_DB } = await import('../js/coords-db.js');
+  const out = Object.entries(COORD_DB)
+    .filter(([, v]) => !(v[0] >= 73 && v[0] <= 136 && v[1] >= 3 && v[1] <= 54))
+    .map(([k, v]) => k + '(' + v[0] + ',' + v[1] + ')');
+  assert.deepEqual(out, [], '这些坐标在国境之外：' + out.slice(0, 5).join('、'));
+});
+
+await test('坐标库: 每条都是 [经度, 纬度, 来源]', async () => {
+  const { COORD_DB } = await import('../js/coords-db.js');
+  const bad = Object.entries(COORD_DB).filter(([, v]) => !(Array.isArray(v) && v.length >= 3
+    && typeof v[0] === 'number' && typeof v[1] === 'number'
+    && ['wiki', 'wikidata', 'osm'].includes(v[2]))).map(([k]) => k);
+  assert.deepEqual(bad, [], '结构不对的条目：' + bad.slice(0, 5).join('、'));
+});
+
 await test('简介库: 找不到本地词条时宁可没有，也不套外地那条', async () => {
   const { SPOT_DESC_DB } = await import('../js/spot-desc-db.js');
   // 呼和浩特的这处寺庙没有对应词条，回退手写的一句话，

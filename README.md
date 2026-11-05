@@ -201,8 +201,8 @@
 
 ```bash
 python tools/check_integrity.py   # 静态检查：DOM id / import 路径 / 导出名
-node tools/unit_test.mjs          # 单元测试：纯函数 34 项（无需浏览器）
-node tools/e2e_check.mjs          # 端到端：真实浏览器跑 42 项交互断言
+node tools/unit_test.mjs          # 单元测试：纯函数 53 项（无需浏览器）
+node tools/e2e_check.mjs          # 端到端：真实浏览器跑 72 项交互断言
 npx eslint js/ tools/ -c eslint.config.mjs   # 代码风格与潜在缺陷
 ```
 

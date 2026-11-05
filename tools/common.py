@@ -1,7 +1,13 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """夜游神 · 数据管线公共模块
-仅依赖标准库；默认走本地代理（可用 PROXY 环境变量覆盖，如 PROXY=http://127.0.0.1:7890）。"""
+仅依赖标准库。网络默认直连；需要本地代理时用 PROXY 指定
+（如 PROXY=http://127.0.0.1:7890），设 PROXY= 或不设都是直连。
+
+早先这里写死 PROXY=http://127.0.0.1:7890，代理一关，所有抓取脚本都静默失败：
+urllib 报 WinError 10061（目标计算机积极拒绝），而 get_json 把异常吞掉返回 None，
+表现成"维基接口不可达""这条景点查不到"——数据不更新，日志里却看不出原因。
+"""
 import json, os, re, time, urllib.parse, urllib.request
 
 # ── 路径 ──
@@ -10,9 +16,15 @@ JS = os.path.join(ROOT, 'js')
 DATA = os.path.join(ROOT, 'data')
 os.makedirs(DATA, exist_ok=True)
 
-PROXY = os.environ.get('PROXY', 'http://127.0.0.1:7890')
-_opener = urllib.request.build_opener(urllib.request.ProxyHandler({
-    'http': PROXY, 'https': PROXY}))
+PROXY = os.environ.get('PROXY', '').strip()
+# 空字符串 = 不走代理（ProxyHandler({}) 会清掉系统注册表里的代理设置）
+_opener = urllib.request.build_opener(
+    urllib.request.ProxyHandler({'http': PROXY, 'https': PROXY} if PROXY else {}))
+
+
+def open_url(req, timeout=25):
+    """统一出口：所有抓取脚本走同一个 opener，代理设置只有一处"""
+    return _opener.open(req, timeout=timeout)
 
 UA = 'NightRoamer/1.0 (https://github.com/2421755157/xiaodong-yyds)'
 # 端点用 https：Wikimedia 现会把 http 请求 301 到 https，走 https 可少一跳、更稳
@@ -31,7 +43,7 @@ def get_json(url, retries=5, timeout=25):
     for i in range(retries):
         try:
             req = urllib.request.Request(url, headers={'User-Agent': UA})
-            return json.loads(_opener.open(req, timeout=timeout).read().decode('utf-8'))
+            return json.loads(open_url(req, timeout=timeout).read().decode('utf-8'))
         except Exception:
             if i == retries - 1:
                 return None

@@ -11,7 +11,8 @@ import { resolveTheme, THEME_ORDER, themeLabel, PRO_SCENES, spotSeed, setQuality
 import { isMobile, hasWebGL } from './env.js';
 import { loadThreeRuntime, loadPanorama, warmUpThree } from './three-loader.js';
 import { analyzeToday, drawMoodCard } from './mood.js';
-import { FORTUNES, greetingFor, SPOT_MEMES, expandDesc, pickN, spotDescKey, pickSpotDesc } from './lexicon.js';
+import { FORTUNES, greetingFor, SPOT_MEMES, expandDesc, pickN, spotDescKey, pickSpotDesc,
+         pickCoord } from './lexicon.js';
 import { getSpotImages, getSpotCover, galleryReady, ensureGallery,
          loadSpotImages, spotImagesReady } from './spot-images.js';
 import { streetViewFor, hasStreetView, POIID_DB } from './streetview.js';
@@ -43,17 +44,22 @@ let descDBRepainted = false;
 // ═══ 景点真实简介（维基词条首段静态库）优先，手写 d 字段作为回退 ═══
 // 同名景点（西湖/象鼻山/世界之窗）在库里是「省|市|名」分开存的，
 // 这里给每个 spot 对象预先绑好自己的键，省得每个调用点都手工传省市。
-const DESC_KEY = new WeakMap();
+// 简介库和坐标库共用同一套键（都按「省|市|名」分城存），所以只绑一次。
+const SPOT_KEY = new WeakMap();
 for (const p of PROVINCES) {
   for (const c of p.cities) {
-    for (const s of c.spots) DESC_KEY.set(s, spotDescKey(p.n, c.n, s.n));
+    for (const s of c.spots) SPOT_KEY.set(s, spotDescKey(p.n, c.n, s.n));
   }
 }
 function realDesc(spot) {
-  return pickSpotDesc(DESC_DB.get, DESC_KEY.get(spot), spot.n, spot.d);
+  return pickSpotDesc(DESC_DB.get, SPOT_KEY.get(spot), spot.n, spot.d);
 }
 function hasRealDesc(spot) {
-  return !!pickSpotDesc(DESC_DB.get, DESC_KEY.get(spot), spot.n, '');
+  return !!pickSpotDesc(DESC_DB.get, SPOT_KEY.get(spot), spot.n, '');
+}
+// 坐标：分城键优先，再退到裸名。没坐标的景点详情页不显示小地图。
+function coordOf(spot) {
+  return pickCoord(COORD_DB.get, SPOT_KEY.get(spot), spot.n);
 }
 // 卡片摘要：取首句、限长，避免长段落撑破卡片
 function shortDesc(spot, max = 44) {
@@ -670,7 +676,7 @@ async function renderStreetBtn(spot) {
   if (!btn) return;
   if (!hasStreetView()) { btn.hidden = true; return; }   // 没配密钥就不显示
   await COORD_DB.load();
-  const c = COORD_DB.get(spot.n);
+  const c = coordOf(spot);
   // poiid 指向景点正门，比只传坐标准；没有 poiid 但有坐标也能取到附近街景
   await POIID_DB.load();
   const poi = POIID_DB.get(spot.n) || null;
@@ -936,7 +942,7 @@ async function openSpot(prov, city, spot) {
   renderStreetBtn(spot);
   // 位置小地图（静态图接口，与街景共用坐标）
   COORD_DB.load().then(() => {
-    const cc = COORD_DB.get(spot.n);
+    const cc = coordOf(spot);
     renderStaticMap(spot, cc ? [cc[0], cc[1]] : null);
   });
   setupDescExpand();

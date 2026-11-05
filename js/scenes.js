@@ -575,15 +575,23 @@ export function buildScene(sceneKey, themeKey, renderer, seed = 0) {
   // 由调用方在离开场景时 dispose —— 否则每切一次时辰就多留一块 GPU 显存。
   let envRT = null;
   if (renderer) {
+    let pmrem = null, envSky = null;
     try {
-      const pmrem = new THREE.PMREMGenerator(renderer);
+      pmrem = new THREE.PMREMGenerator(renderer);
       pmrem.compileEquirectangularShader();
       const envScene = new THREE.Scene();
-      envScene.add(makeSky(theme));
+      // 这张天空球只用来"拍"环境贴图，不进 built.scene —— releaseScene 遍历不到，
+      // 必须在本函数里自己释放。漏掉的话每重建一次场景就留一个球面几何体在显存里。
+      envSky = makeSky(theme);
+      envScene.add(envSky);
       envRT = pmrem.fromScene(envScene, 0, 0.1, 1000);
       scene.environment = envRT.texture;
-      pmrem.dispose();
     } catch (e) { /* 老设备降级 */ }
+    if (envSky) {
+      envSky.geometry.dispose();
+      envSky.material.dispose();
+    }
+    if (pmrem) pmrem.dispose();
   }
   scene.add(makeSunMoon(theme));
   scene.add(makeClouds(theme.clouds, theme, animators));

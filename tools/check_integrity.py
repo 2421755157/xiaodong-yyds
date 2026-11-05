@@ -257,6 +257,45 @@ try:
 except Exception as e:
     problems.append('死导出校验失败（%s）' % e)
 
+# 10) 坐标库：结构、来源、国境范围
+#     小地图拿到的坐标一旦出了国境，用户看到的就是"景点在哈萨克斯坦"。
+#     Photon 是 OSM 数据，同名地点遍布全球（「龙泉寺」「南山」都有境外条目），
+#     抓取时做了省份校验，这里再守一道数据出口。
+COORD_SOURCES = {'wiki', 'wikidata', 'osm'}
+try:
+    cd_src = io.open(os.path.join(JS, 'coords-db.js'), encoding='utf-8').read()
+    cd_head = cd_src.index('export const COORD_DB')
+    coord_db = json.loads(cd_src[cd_src.index('{', cd_head):cd_src.rindex('}') + 1])
+    spots_all = json.load(io.open(os.path.join(ROOT, 'data', 'spots_uniq.json'), encoding='utf-8'))
+    dup_names = {n for n in {s['name'] for s in spots_all}
+                 if sum(1 for s in spots_all if s['name'] == n) > 1}
+    bad_struct, bad_range, bad_src, bare_dup = [], [], [], []
+    for k, v in coord_db.items():
+        if not (isinstance(v, list) and len(v) >= 3):
+            bad_struct.append(k)
+            continue
+        lng, lat, src = v[0], v[1], v[2]
+        if not (isinstance(lng, (int, float)) and isinstance(lat, (int, float))
+                and -180 <= lng <= 180 and -90 <= lat <= 90):
+            bad_struct.append(k)
+        elif not (73 <= lng <= 136 and 3 <= lat <= 54):
+            bad_range.append('%s(%.2f,%.2f)' % (k, lng, lat))
+        if src not in COORD_SOURCES:
+            bad_src.append('%s=%s' % (k, src))
+        if '|' not in k and k in dup_names:
+            bare_dup.append(k)
+    if bad_struct:
+        problems.append('坐标库结构异常 %d 条（如 %s）' % (len(bad_struct), '、'.join(bad_struct[:3])))
+    if bad_range:
+        problems.append('坐标落在国境之外的 %d 条（如 %s）' % (len(bad_range), '、'.join(bad_range[:3])))
+    if bad_src:
+        problems.append('坐标来源标记不认识 %d 条（如 %s）' % (len(bad_src), '、'.join(bad_src[:3])))
+    if bare_dup:
+        problems.append('重名景点仍用裸名键 %d 个（如 %s）→ python tools/fetch_coords.py'
+                        % (len(bare_dup), '、'.join(bare_dup[:3])))
+except Exception as e:
+    problems.append('坐标库校验失败（%s）' % e)
+
 print('检查完成：%d 个问题' % len(problems))
 for p in problems:
     print('  ✗', p)
