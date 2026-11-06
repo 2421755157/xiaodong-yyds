@@ -79,10 +79,14 @@
   <div class="breadcrumb" id="breadcrumb"></div>
 
   <div class="search-box">
-    <input id="search-input" type="text" placeholder="搜景点 / 城市 / 省份，例如：故宫、丽江、云南" autocomplete="off">
+    <input id="search-input" type="text" placeholder="搜景点 / 城市 / 省份，例如：故宫、丽江、云南" autocomplete="off"
+           aria-label="搜索景点、城市或省份" aria-controls="search-results">
     <button class="btn-gold" id="search-btn">搜索</button>
   </div>
-  <div class="search-results" id="search-results" aria-live="polite"></div>
+  <!-- 结果条数单独放一个常驻的 live region：结果面板每次搜索都整块重建，
+       aria-live 挂在会被替换掉的节点上是不会播报的 -->
+  <p class="sr-only" id="search-status" role="status" aria-live="polite"></p>
+  <div class="search-results" id="search-results" role="region" aria-label="搜索结果"></div>
 
   <div class="spot-grid" id="spot-grid"><!-- 省/市/景点卡片由 JS 渲染 --></div>
 

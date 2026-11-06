@@ -391,10 +391,60 @@ function markHit(text, q) {
   return t.slice(0, i) + '<mark>' + t.slice(i, i + eq.length) + '</mark>' + t.slice(i + eq.length);
 }
 
+// ═══ 搜索结果的无障碍层 ═══
+// 结果面板每次搜索都 innerHTML 整块重建，这里的三件事都围绕这个事实：
+//   1) 结果项原来是纯 <div>，只能点。键盘用户敲完关键词就断在这儿了。
+//   2) 焦点会在重建时被一起删掉（掉回 <body>，Tab 从文档开头重来），要还回去。
+//   3) 条数改成常驻的 live region 播报，别指望挂在被替换掉的节点上。
+function hitLabel(r) {
+  const kind = r.type === 'prov' ? '省份' : r.type === 'city' ? '城市' : '景点';
+  return String(r.label).replace(/（[省市]）$/, '') + '，' + kind + '，' +
+    (r.sub || '') + (r.tag ? ' · ' + r.tag : '');
+}
+
+function setSearchStatus(text) {
+  const el = $('#search-status');
+  if (el) el.textContent = text;
+}
+
+// 重建前记住焦点落在哪个筛选/结果上，重建后按同样的身份找回来
+function searchFocusMark(box) {
+  const a = document.activeElement;
+  if (!a || !box.contains(a)) return null;
+  if (a.classList.contains('sr-chip')) return { chip: a.dataset.type };
+  if (a.id === 'sr-prov') return { prov: true };
+  if (a.classList.contains('sr-item')) return { item: +a.dataset.idx };
+  return null;
+}
+function restoreSearchFocus(box, mark) {
+  if (!mark) return;
+  let el = null;
+  if (mark.chip) el = box.querySelector('.sr-chip[data-type="' + mark.chip + '"]');
+  else if (mark.prov) el = box.querySelector('#sr-prov');
+  else if ('item' in mark) el = box.querySelector('.sr-item[data-idx="' + mark.item + '"]');
+  // 换筛选后原来的第 N 条可能不存在了，退回输入框，别把焦点丢在 <body> 上
+  (el || $('#search-input')).focus();
+}
+
+function openSearchHit(r) {
+  const box = $('#search-results');
+  box.classList.remove('show');
+  $('#search-input').value = '';
+  setSearchStatus('');
+  if (r.type === 'prov') { nav = { level: 'city', prov: r.prov }; renderNav(); }
+  else if (r.type === 'city') { nav = { level: 'spot', prov: r.prov, city: r.city }; renderNav(); }
+  else { openSpot(r.prov, r.city, r.spot); }
+}
+
 function doSearch() {
   const q = $('#search-input').value.trim();
   const box = $('#search-results');
-  if (!q) { box.classList.remove('show'); box.innerHTML = ''; return; }
+  if (!q) {
+    box.classList.remove('show');
+    box.innerHTML = '';
+    setSearchStatus('');
+    return;
+  }
   // 简介库是异步懒加载的：库没就绪时 DESC_DB.get() 恒为 undefined，
   // 搜简介全文会全部落空（只剩名称命中）。这里先确保库就绪再搜。
   if (!DESC_DB.ready()) {
@@ -453,12 +503,14 @@ function doSearch() {
   const rank = r => (r.type === 'spot' && r.byName ? 0 : r.type === 'spot' ? 1 : r.type === 'city' ? 2 : 3);
   results.sort((a, b) => rank(a) - rank(b));
   const shown = results.slice(0, 40);
+  const focusMark = searchFocusMark(box);
 
   // 筛选条
   const chips = [
     ['all', '全部'], ['spot', '景点'], ['city', '城市'], ['prov', '省份'],
-  ].map(([k, t]) => '<button class="sr-chip' + (searchType === k ? ' on' : '') + '" data-type="' + k + '">' + t + '</button>').join('');
-  const provSel = '<select class="sr-select" id="sr-prov"><option value="">全国</option>' +
+  ].map(([k, t]) => '<button class="sr-chip' + (searchType === k ? ' on' : '') + '" data-type="' + k +
+    '" aria-pressed="' + (searchType === k) + '">' + t + '</button>').join('');
+  const provSel = '<select class="sr-select" id="sr-prov" aria-label="限定省份"><option value="">全国</option>' +
     PROVINCES.map(p => '<option value="' + escHtml(p.n) + '"' + (searchProv === p.n ? ' selected' : '') + '>' + escHtml(p.n) + '</option>').join('') +
     '</select>';
 
@@ -468,25 +520,40 @@ function doSearch() {
       '，换个词试试（已搜 ' + stats().spots + ' 处风景）</div>';
     bindSearchFilters(box);
     box.classList.add('show');
+    setSearchStatus('没找到与 ' + q + ' 相关的景点');
+    restoreSearchFocus(box, focusMark);
     return;
   }
   box.innerHTML = '<div class="sr-filters">' + chips + provSel + '</div>' +
     '<div class="sr-head">找到 ' + results.length + ' 条结果' + (results.length > shown.length ? '（显示前 ' + shown.length + '）' : '') + '</div>';
-  for (const r of shown) {
+  shown.forEach((r, i) => {
     const it = document.createElement('div');
     it.className = 'sr-item';
+    it.dataset.idx = i;
+    // role=button + tabindex：点得开的东西也必须 Tab 得到、回车敲得开
+    it.setAttribute('role', 'button');
+    it.setAttribute('tabindex', '0');
+    it.setAttribute('aria-label', hitLabel(r));
     it.innerHTML = '<b>' + markHit(r.label, q) + '</b><span>' + escHtml(r.sub) + (r.tag ? ' · ' + escHtml(r.tag) : '') + '</span>';
-    it.addEventListener('click', () => {
-      box.classList.remove('show');
-      $('#search-input').value = '';
-      if (r.type === 'prov') { nav = { level: 'city', prov: r.prov }; renderNav(); }
-      else if (r.type === 'city') { nav = { level: 'spot', prov: r.prov, city: r.city }; renderNav(); }
-      else { openSpot(r.prov, r.city, r.spot); }
+    it.addEventListener('click', () => openSearchHit(r));
+    it.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openSearchHit(r); return; }
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        const list = [...box.querySelectorAll('.sr-item')];
+        const next = list[i + (e.key === 'ArrowDown' ? 1 : -1)];
+        // 从第一条往上退，回到输入框——比一头撞死在列表顶上顺手
+        (next || $('#search-input')).focus();
+        return;
+      }
+      if (e.key === 'Escape') { e.preventDefault(); box.classList.remove('show'); $('#search-input').focus(); }
     });
     box.appendChild(it);
-  }
+  });
   bindSearchFilters(box);
   box.classList.add('show');
+  setSearchStatus('找到 ' + results.length + ' 条结果' + (shown.length < results.length ? '，显示前 ' + shown.length + ' 条' : '') + '，按向下键进入列表');
+  restoreSearchFocus(box, focusMark);
 }
 
 function bindSearchFilters(box) {
@@ -1613,6 +1680,11 @@ function bind() {
   });
   si.addEventListener('keydown', e => {
     if (e.key === 'Enter') { clearTimeout(searchTimer); doSearch(); }
+    // 输入框里按 ↓ 直接落到第一条结果，不用再摸鼠标
+    else if (e.key === 'ArrowDown') {
+      const first = document.querySelector('#search-results.show .sr-item');
+      if (first) { e.preventDefault(); first.focus(); }
+    }
     else if (e.key === 'Escape') { si.value = ''; doSearch(); si.blur(); }
   });
   // 快捷键：/ 聚焦搜索框，Esc 关闭结果面板

@@ -547,6 +547,71 @@ function check(name, ok, detail = '') {
   const chips = await cdp.eval("document.querySelectorAll('#search-results .sr-chip').length");
   check('搜索筛选条渲染', chips === 4, chips + ' 个筛选按钮');
 
+  // 7a-1) 搜索结果必须键盘可达
+  //       结果项原来是纯 <div>：敲完关键词，键盘用户就断在这儿了，
+  //       不开鼠标一条也打不开（站点的主要导航路径之一）。
+  const srKeys = await cdp.eval(`(()=>{
+    const it = document.querySelector('#search-results .sr-item');
+    if (!it) return JSON.stringify({ n: 0 });
+    return JSON.stringify({
+      n: document.querySelectorAll('#search-results .sr-item').length,
+      tabindex: it.getAttribute('tabindex'), role: it.getAttribute('role'),
+      label: it.getAttribute('aria-label') || '',
+    });
+  })()`);
+  const srk = JSON.parse(srKeys);
+  check('搜索结果项可键盘聚焦且是按钮语义',
+    srk.n > 0 && srk.tabindex === '0' && srk.role === 'button' && srk.label.length > 3,
+    `tabindex=${srk.tabindex} role=${srk.role} name=${srk.label.slice(0, 24)}`);
+
+  // 7a-2) 输入框按 ↓ 落进结果列表，列表内 ↑↓ 移动，顶部 ↑ 退回输入框
+  const srNav = await cdp.eval(`(()=>{
+    const kd = (el, key) => el.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+    const i = document.getElementById('search-input');
+    i.focus();
+    kd(i, 'ArrowDown');
+    const first = document.activeElement.classList.contains('sr-item') ? document.activeElement.dataset.idx : 'none';
+    kd(document.activeElement, 'ArrowDown');
+    const second = document.activeElement.dataset.idx;
+    kd(document.activeElement, 'ArrowUp');
+    kd(document.activeElement, 'ArrowUp');
+    const back = document.activeElement.id || document.activeElement.className;
+    return JSON.stringify({ first, second, back });
+  })()`);
+  const srn = JSON.parse(srNav);
+  check('搜索框 ↓ 进入结果、结果内 ↑↓ 移动、顶部 ↑ 退回输入框',
+    srn.first === '0' && srn.second === '1' && srn.back === 'search-input',
+    `first=${srn.first} second=${srn.second} back=${srn.back}`);
+
+  // 7a-3) 条数靠常驻 live region 播报
+  //       面板本身每次搜索都整块重建，aria-live 挂在被替换掉的节点上不会播报；
+  //       挂在整块面板上又会把几十条结果当成一段话念完。
+  const srLive = await cdp.eval(`(()=>{
+    const st = document.getElementById('search-status');
+    const box = document.getElementById('search-results');
+    return JSON.stringify({ text: st ? st.textContent : '', role: st && st.getAttribute('role'),
+      live: st && st.getAttribute('aria-live'), boxLive: box.getAttribute('aria-live') });
+  })()`);
+  const srl = JSON.parse(srLive);
+  check('搜索条数由常驻 live region 播报',
+    srl.role === 'status' && srl.live === 'polite' && /条结果/.test(srl.text) && srl.boxLive == null,
+    `status="${srl.text.slice(0, 22)}" 面板 aria-live=${srl.boxLive}`);
+
+  // 7a-4) 换筛选后焦点不能掉回 <body>（整块重建会把焦点一起删掉）
+  const srChip = await cdp.eval(`(()=>{
+    const b = document.querySelector('.sr-chip[data-type="spot"]');
+    b.focus(); b.click();
+    const a = document.activeElement;
+    // 整块重建后旧节点已脱离文档，pressed 必须从新节点上读
+    const nb = document.querySelector('.sr-chip[data-type="spot"]');
+    const ok = a.classList.contains('sr-chip') && a.dataset.type === 'spot' && nb.getAttribute('aria-pressed') === 'true';
+    document.querySelector('.sr-chip[data-type="all"]').click();
+    return JSON.stringify({ ok, where: a.className + '/' + (a.dataset.type || ''), pressed: nb.getAttribute('aria-pressed') });
+  })()`);
+  const srcChip = JSON.parse(srChip);
+  check('切换筛选后焦点仍在该按钮上且状态可读',
+    srcChip.ok === true, `焦点=${srcChip.where} aria-pressed=${srcChip.pressed}`);
+
   // 7a) 搜索要能命中「简介正文」而不只是名称
   // （原实现里简介库是懒加载的，库没就绪时 get() 恒为 undefined，
   //  搜正文会全部落空 —— 这条断言专门守住这个回归）
