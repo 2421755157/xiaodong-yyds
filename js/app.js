@@ -1637,6 +1637,10 @@ function bind() {
     }
     show('#home');
     toast('欢迎，' + name + '。夜游神已上线，山河等你。');
+    // 欢迎页期间刻意没预热（省掉 1MB 无用下载），进站后在这里补上。
+    // 此时首屏已经画完，两者依旧走空闲时段，不影响首页渲染。
+    warmUpSpotImages();
+    warmUpThree();
   };
   $('#gate-enter').addEventListener('click', tryEnter);
   $('#gate-name').addEventListener('keydown', e => { if (e.key === 'Enter') tryEnter(); });
@@ -1975,9 +1979,14 @@ function openDeepSpot(d) {
 }
 
 const deep = parseDeepSpot();
+const returning = !!store.data.user;
 applyLocation();
-renderNav();
-if (store.data.user) {
+// 首次访客会先看到欢迎页（只问一句「怎么称呼你」），这里不能 renderNav：
+// 省份网格一渲染就会连锁拉简介库 615KB / 省卡封面图，而这些在欢迎页上
+// 一个像素都用不到。真正进站时 renderHome() 内部会自己渲染一次。
+// （曾经的写法是无条件 renderNav()，等于让每个新访客在"登录屏"上白下 1MB。）
+if (returning || deep) renderNav();
+if (returning) {
   renderHome();                     // 内部会把 nav 重置到省份层级
   if (deep) openDeepSpot(deep);     // 带着分享链接进来时，别被默认定位覆盖
   show('#home');
@@ -1996,5 +2005,10 @@ if (store.data.user) {
 //  · 景点图库（120KB）—— 用户点进景点列表时通常已就绪，不用干等
 //  · 3D 运行时（three 内核 257KB）—— 点「进入 3D 漫游」时不用干等
 // 两者都不占用首屏关键路径。
-warmUpSpotImages();
-warmUpThree();
+// 但前提是"首屏"确实是主页：停在欢迎页时预热的全是用户几秒后才会用到、
+// 也可能永远不会用到的东西（新访客可能直接关掉页面），所以只在已进站时预热。
+// 从欢迎页进来的人由 tryEnter() 在进站后补上。
+if (returning || deep) {
+  warmUpSpotImages();
+  warmUpThree();
+}

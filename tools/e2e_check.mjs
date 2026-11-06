@@ -804,6 +804,53 @@ function check(name, ok, detail = '') {
     hh.name === '大昭寺' && hh.desc.indexOf('拉萨') < 0 && hh.desc.indexOf('八廓街') < 0,
     hh.desc.slice(0, 34) || '(无简介)');
 
+  // 10) 欢迎页（首次访客）不做主页才用得上的下载
+  //     原先是无条件 renderNav()：新访客还停在「怎么称呼你」那一屏，
+  //     后台已经把简介库 615KB + 景点图库 118KB + three 内核 326KB + 省卡封面图
+  //     全拉完了，合计约 1.3MB —— 这一屏一个像素都用不到。
+  //     现在这些一律等真正进站后再下，这里守住"停在欢迎页时一个都不许有"。
+  await cdp.eval('localStorage.clear()');
+  await cdp.navigate(BASE);
+  await sleep(3500);
+  const gateRaw = await cdp.eval(`(() => {
+    const rs = performance.getEntriesByType('resource');
+    const has = re => rs.some(r => re.test(r.name));
+    const heavy = [];
+    if (has(/spot-desc-db\\.js/)) heavy.push('简介库');
+    if (has(/spot-images-db\\.js/)) heavy.push('景点图库');
+    if (has(/three\\.module\\.js/)) heavy.push('three');
+    if (has(/\\/js\\/scenes\\.js/)) heavy.push('scenes.js');
+    if (has(/img\\/cover\\//)) heavy.push('省卡封面图');
+    const kb = Math.round(rs.reduce((s, r) => s + (r.transferSize || 0), 0) / 1024);
+    return JSON.stringify({
+      gate: !document.getElementById('gate').hidden,
+      home: !document.getElementById('home').hidden,
+      cards: document.querySelectorAll('.spot-card').length,
+      heavy: heavy.join('+'),
+      kb,
+    });
+  })()`);
+  const gate = JSON.parse(gateRaw);
+  check('欢迎页不下载主页资源（简介库/图库/three/封面）',
+    gate.gate && !gate.home && gate.cards === 0 && gate.heavy === '',
+    `停在欢迎页 ${gate.kb}KB，多下载：${gate.heavy || '无'}`);
+
+  // 10b) 进站后主页必须照常可用：卡片、真实简介都要回来（别为了省流量把功能省掉）
+  await cdp.eval(`document.getElementById('gate-name').value = '测试员';
+    document.getElementById('gate-enter').click();`);
+  const gateCards = await waitFor(async () => {
+    const n = await cdp.eval("document.querySelectorAll('.spot-card').length");
+    return n > 0 ? n : 0;
+  }, 15000);
+  await waitFor(async () => await cdp.eval(
+    "performance.getEntriesByType('resource').some(r => /spot-desc-db\\.js/.test(r.name))") === true, 15000);
+  await sleep(800);
+  const firstDesc = await cdp.eval(
+    "((document.querySelector('#spot-grid .spot-card p') || {}).textContent || '').trim()");
+  check('欢迎页进站后主页照常渲染（卡片+真实简介）',
+    gateCards > 0 && firstDesc.length > 10,
+    gateCards + ' 张卡片，首卡简介 ' + firstDesc.length + ' 字：' + firstDesc.slice(0, 18));
+
   console.log('\n通过 ' + results.filter(r => r.ok).length + '/' + results.length);
   const failed = results.filter(r => !r.ok);
   if (failed.length) {
