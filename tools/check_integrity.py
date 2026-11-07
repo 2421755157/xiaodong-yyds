@@ -296,6 +296,44 @@ try:
 except Exception as e:
     problems.append('坐标库校验失败（%s）' % e)
 
+# 11) 简介库：外地词条不得挂在本市景点上
+#     泛名景点的词条标题完全对得上，正文却是别处的（「长岛」是纽约长岛、
+#     「铁塔」是济宁崇觉寺铁塔、「天河山」是加拿大一位政治人物）。
+#     页面上就是「山东烟台的景点，简介在讲美国长岛」，比没有简介更糟。
+#     判定规则见 tools/place_guard.py，抓取管线用的是同一份。
+try:
+    sys.path.insert(0, os.path.join(ROOT, 'tools'))
+    from place_guard import mismatch                      # noqa: E402
+    sd_src = io.open(os.path.join(JS, 'spot-desc-db.js'), encoding='utf-8').read()
+    sd_head = sd_src.index('export const SPOT_DESC_DB')
+    desc_db = json.loads(sd_src[sd_src.index('{', sd_head):sd_src.rindex('}') + 1])
+    sd_spots = json.load(io.open(os.path.join(ROOT, 'data', 'spots_uniq.json'),
+                                 encoding='utf-8'))
+    cnt = {}
+    for s in sd_spots:
+        cnt[s['name']] = cnt.get(s['name'], 0) + 1
+    misplaced = []
+    for s in sd_spots:
+        key = ('%s|%s|%s' % (s['prov'], s['city'], s['name'])) \
+            if cnt[s['name']] > 1 else s['name']
+        txt = desc_db.get(key)
+        if not txt:
+            continue
+        why = mismatch(txt, s.get('city', ''), s.get('prov', ''))
+        if why:
+            misplaced.append('%s %s/%s（%s）' % (s['name'], s['prov'], s['city'], why))
+    if misplaced:
+        problems.append('简介与景点所在城市不符 %d 条（如 %s）→ 见 tools/place_guard.py'
+                        % (len(misplaced), '；'.join(misplaced[:2])))
+    blocked = json.load(io.open(os.path.join(ROOT, 'data', 'desc_block.json'),
+                                encoding='utf-8'))
+    leaked = [k for k in blocked if k in desc_db]
+    if leaked:
+        problems.append('已拉黑的景点简介又出现在库里 %d 个（如 %s）'
+                        % (len(leaked), '、'.join(leaked[:3])))
+except Exception as e:
+    problems.append('简介库校验失败（%s）' % e)
+
 print('检查完成：%d 个问题' % len(problems))
 for p in problems:
     print('  ✗', p)

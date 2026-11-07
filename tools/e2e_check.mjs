@@ -808,7 +808,9 @@ function check(name, ok, detail = '') {
   // 9d) 同名景点简介不串城
   //     简介库原先只按景点名做键，惠州西湖直接复用了杭州西湖那段话
   //     （"位于浙江省杭州旧城西侧"），清远丹霞山显示的是韶关的。
-  const openSpotByHash = async (prov, city, name) => {
+  // minLen：没有维基词条的景点，详情里只剩一句手写文案（「海上仙山。」5 字）。
+  // 原先写死 6 字，会把「弹窗已打开但只有手写文案」误判成没打开，断言因此假失败。
+  const openSpotByHash = async (prov, city, name, minLen = 6) => {
     await cdp.navigate(BASE.replace(/\/$/, '') + '#/' + encodeURIComponent(prov) + '/'
       + encodeURIComponent(city) + '/' + encodeURIComponent(name));
     const raw = await waitFor(async () => {
@@ -816,7 +818,7 @@ function check(name, ok, detail = '') {
         const m = document.getElementById('intro-modal');
         if (!m || m.hidden) return '';
         const d = (document.getElementById('intro-desc') || {}).textContent || '';
-        if (d.length < 6) return '';
+        if (d.length < ${minLen}) return '';
         return JSON.stringify({
           name: (document.getElementById('intro-name') || {}).textContent || '',
           desc: d,
@@ -868,6 +870,34 @@ function check(name, ok, detail = '') {
   check('无本地词条时不套外地简介（呼和浩特）',
     hh.name === '大昭寺' && hh.desc.indexOf('拉萨') < 0 && hh.desc.indexOf('八廓街') < 0,
     hh.desc.slice(0, 34) || '(无简介)');
+
+  // 泛名景点：维基词条标题与景点名一模一样，正文讲的却是别处的同一名字
+  // （长岛→纽约长岛、铁塔→济宁崇觉寺铁塔）。这类错位标题层面看不出来，
+  // 只有把首段挂上去才知道，所以在这一层守一道。
+  // 这两处正确的结局是「没有维基词条」→ 回退手写一句话（长岛只有 5 字），
+  // 所以 minLen 传 2，让断言能读到弹窗，而不是超时后误判成打不开。
+  const cd = await openSpotByHash('山东', '烟台', '长岛', 2);
+  check('泛名景点不套外地词条（烟台长岛）',
+    cd.name === '长岛' && cd.desc.indexOf('纽约') < 0 && cd.desc.indexOf('美国') < 0,
+    cd.desc.slice(0, 34) || '(弹窗未打开)');
+
+  const kf = await openSpotByHash('河南', '开封', '铁塔', 2);
+  check('泛名景点不套外地词条（开封铁塔）',
+    kf.name === '铁塔' && kf.desc.indexOf('济宁') < 0 && kf.desc.indexOf('崇觉寺') < 0,
+    kf.desc.slice(0, 34) || '(弹窗未打开)');
+
+  // 人工拉黑（data/desc_block.json）的两处：词条标题对得上、正文却完全是另一样东西，
+  // 自动校验只能判「地域」，这两条只能靠黑名单守。西塘是宁波的西塘河、
+  // 安阳岳飞庙拿到的是开封朱仙镇的庙，都属同省异市，跨省规则拦不住。
+  const xt = await openSpotByHash('浙江', '嘉兴', '西塘', 2);
+  check('同名异物不套别人的词条（嘉兴西塘）',
+    xt.name === '西塘' && xt.desc.indexOf('宁波') < 0 && xt.desc.indexOf('西塘河') < 0,
+    xt.desc.slice(0, 34) || '(弹窗未打开)');
+
+  const yf = await openSpotByHash('河南', '安阳', '岳飞庙', 2);
+  check('同名异物不套别人的词条（安阳岳飞庙）',
+    yf.name === '岳飞庙' && yf.desc.indexOf('开封') < 0 && yf.desc.indexOf('朱仙镇') < 0,
+    yf.desc.slice(0, 34) || '(弹窗未打开)');
 
   // 10) 欢迎页（首次访客）不做主页才用得上的下载
   //     原先是无条件 renderNav()：新访客还停在「怎么称呼你」那一屏，

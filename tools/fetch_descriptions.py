@@ -23,9 +23,18 @@ from concurrent.futures import ThreadPoolExecutor
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from common import (DATA, JS, ZHW, clean_text, get_json, is_disambig, js_export,
                     load_json, save_json, search_title as _search_title)
+from place_guard import mismatch
 
 SPOT_CACHE = os.path.join(DATA, 'desc_db.json')
 REGION_CACHE = os.path.join(DATA, 'region_db.json')
+# 「按名字查到的词条讲的不是这一处」的记账本：{缓存键: 被否掉的词条名}。
+# 没有它，每次续跑都会把同一批泛名景点重新查一遍、又拿到同一篇外地词条，
+# 白白多发上百条请求。
+REJECT_CACHE = os.path.join(DATA, 'desc_reject.json')
+# 人工判过「维基没有这一处的词条，只有同名的商品/传说/另一个地方」的景点：{键: 理由}。
+# 自动校验只能看「有没有本市字样」，像「望儿山酒是营口出产的白酒」这种正文确实
+# 落在本市、但讲的不是风景的，只能人工拉黑，否则每次重跑又把它捡回来。
+BLOCK_CACHE = os.path.join(DATA, 'desc_block.json')
 WORKERS = 16
 
 
@@ -108,6 +117,13 @@ OFF_TOPIC_WORDS = ('舞剧', '芭蕾', '歌剧', '交响', '音乐剧', '电影'
                    '日报', '晚报', '晨刊', '周刊', '杂志', '电视台', '频道',
                    '有限公司', '股份', '人民政府', '委员会')
 
+# 首句开头就是商品 / 传说：同名景点被商品名或志怪词条抢占。
+# 实际踩过：「望儿山」查到「望儿山酒」（营口出产的白酒），
+# 「铜山」查到「铜山湖水怪」。这类词条标题和景点名一模一样，
+# 只是正文讲的根本不是风景，标题层面筛不出来，只能在首句筛。
+SUBJECT_WORDS = ('白酒', '黄酒', '啤酒', '米酒', '果酒', '酒厂', '酒业',
+                 '商标', '水怪', '矿泉水', '香烟', '传说')
+
 
 def precise_title(title, name):
     """词条标题是否就是这处风景（允许「世界之窗 (深圳)」这种消歧义括号）"""
@@ -138,6 +154,9 @@ def off_topic(text, name):
     if re.search(re.escape(name) + '(?:' + '|'.join(BAD_TAIL) + ')', head):
         return True
     if any(w in head for w in OFF_TOPIC_WORDS):
+        return True
+    # 首句讲的是同名商品/志怪：「望儿山酒是营口出产的一系列白酒」「铜山湖水怪又称泌阳龙」
+    if any(w in head[:24] for w in SUBJECT_WORDS):
         return True
     # 人物词条：「陈镜湖（1901年—1933年）」
     return bool(re.search(r'^' + re.escape(name) + r'[（(]\d{4}年', head))
@@ -176,6 +195,40 @@ def locate_title(name, city, prov):
     return None
 
 
+def desc_ok(text, name, city, prov):
+    """这段首段能不能挂到这个景点下面。
+
+    三道关：不是消歧义页、不是同名作品/机构、讲的地域确实是本市这一处
+    （最后一条见 place_guard）。泛名景点（长岛 / 铁塔 / 大峡谷）栽在第三条上。
+    """
+    if not text or is_disambig(text) or off_topic(text, name):
+        return False
+    return mismatch(text, city, prov) is None
+
+
+def locate_scoped(name, city, prov):
+    """给泛名景点找「本地这一处」的词条：候选正文里必须出现本市名。
+
+    按名字查到的词条是「总述词条」或外地那一处（长岛→纽约、大峡谷→科罗拉多），
+    所以先按「城市+名」检索，再要求正文里明确出现城市名，才敢收。
+    """
+    if not city:
+        return None, None
+    cands = {}
+    for q in (city + name, name + city):
+        for t, x in search_pages(q):
+            cands.setdefault(t, x)
+    for t, x in cands.items():
+        if not precise_title(t, name) or is_disambig(x) or off_topic(x, name):
+            continue
+        if city not in x:
+            continue
+        txt = clean_text(x, name)
+        if txt and desc_ok(txt, name, city, prov):
+            return t, txt
+    return None, None
+
+
 def resolve_dup(s, db, city_names, prov_names):
     """给重名景点找回「本地这一处」的词条。
 
@@ -207,7 +260,7 @@ def resolve_dup(s, db, city_names, prov_names):
             best, best_score = (t, x), score
     if best:
         txt = clean_text(best[1], name)
-        if txt and not is_disambig(txt):
+        if txt and desc_ok(txt, name, city, prov):
             return [txt, best[0]], 'scoped'
 
     # 退一步：只有「纯总述词条」才敢用 —— 标题就是这个名字、正文确实讲到本市或本省、
@@ -239,10 +292,35 @@ def do_spots(limit):
         print('清理空简介缓存 %d 条（会重新抓）' % len(empty), flush=True)
     spots = load_spots()
     dup = dup_names(spots)
-    todo = [s for s in spots if spot_desc_key(s, dup) not in db]
+    by_key = {spot_desc_key(s, dup): s for s in spots}
+    rejects = load_json(REJECT_CACHE, {})
+    block = load_json(BLOCK_CACHE, {})
+    for k in block:
+        db.pop(k, None)
+
+    # 库里已有的「讲的不是这一处」的条目先剔掉：它们留在缓存里，导出就会把
+    # 外地那段话挂在本市景点上（邢台的景点写着加拿大政客）。剔掉后这些景点
+    # 重新进入待查队列，本轮会按「城市+名」重找一次；找不到就回退手写文案。
+    wrong = []
+    for k in list(db):
+        s = by_key.get(k)
+        if not s:
+            continue
+        reason = mismatch(db[k][0], s.get('city', ''), s.get('prov', ''))
+        if reason:
+            wrong.append((k, s['name'], reason))
+            db.pop(k)
+    if wrong:
+        print('清理地域错位简介 %d 条（改按城市重查）' % len(wrong), flush=True)
+        for k, n, reason in wrong[:8]:
+            print('   · %s：%s' % (n, reason), flush=True)
+
+    todo = [s for s in spots
+            if spot_desc_key(s, dup) not in db and spot_desc_key(s, dup) not in block]
     print('景点简介：已有 %d 键 / %d 处景点，本轮待查 %d（重名景点 %d）'
           % (len(db), len(spots), len(todo), sum(1 for s in todo if s['name'] in dup)), flush=True)
     if not todo:
+        save_json(SPOT_CACHE, db)
         return db
     # 打乱顺序，避免失败批次被反复重试同一批（代理不稳时尤其重要）
     import random
@@ -253,7 +331,9 @@ def do_spots(limit):
         plain_todo = plain_todo[:limit]
 
     # 阶段 A：精确标题批量（只处理不重名的：重名的走 resolve_dup 按城市校验）
-    names = [s['name'] for s in plain_todo]
+    # 按裸名查过一次发现是外地词条的，不再重查（记在 desc_reject.json 里）。
+    names = [s['name'] for s in plain_todo
+             if s['name'] not in dup and s['name'] not in rejects]
     got = run_batches(names)
     hit = 0
     for s in plain_todo:
@@ -261,39 +341,53 @@ def do_spots(limit):
         if not rec:
             continue
         t = clean_text(rec[0], s['name'])
-        if t and not is_disambig(t):     # 消歧义页（「南湖公园，可能是指：…」）不能当简介
+        # 消歧义页（「南湖公园，可能是指：…」）不能当简介；
+        # 同名外地词条（「长岛」查到纽约长岛）同样不能，交给阶段B 按城市重找。
+        if t and desc_ok(t, s['name'], s['city'], s['prov']):
             db[s['name']] = [t, rec[1]]
             hit += 1
+        elif t:
+            rejects[s['name']] = rec[1]
     print('  阶段A 命中 %d' % hit, flush=True)
     save_json(SPOT_CACHE, db)
 
     # 阶段 B：漏网的用「城市+名」搜索定位
     miss = [s for s in plain_todo if s['name'] not in db]
     if miss:
-        print('  阶段B 搜索定位 %d 个' % len(miss), flush=True)
-        titles = {}
+        print('  阶段B 搜索定位 %d 个（其中 %d 个是按名查错过的泛名）'
+              % (len(miss), sum(1 for s in miss if s['name'] in rejects)), flush=True)
         # 并发别开太大：每个名字要发 4 条检索，24 路并发会被维基限流，
         # 结果就是整批静默失败（一轮下来 75 个全 0 命中）。
         with ThreadPoolExecutor(max_workers=6) as ex:
             def work(s):
                 try:
-                    return s['name'], locate_title(s['name'], s['city'], s['prov'])
+                    # 泛名景点别再按裸名查了，那只会拿回同一篇外地词条
+                    if s['name'] in rejects:
+                        t, txt = locate_scoped(s['name'], s['city'], s['prov'])
+                        return s, t, txt
+                    return s, locate_title(s['name'], s['city'], s['prov']), None
                 except Exception:
-                    return s['name'], None
-            for name, t in ex.map(work, miss):
-                if t:
-                    titles[name] = t
-        got2 = run_batches(list(dict.fromkeys(titles.values())))
+                    return s, None, None
+            resolved = list(ex.map(work, miss))
+        titles = {}
         hit2 = 0
-        for name, t in titles.items():
+        for s, t, txt in resolved:
+            key = spot_desc_key(s, dup)
+            if t and txt:
+                db[key] = [txt, t]
+                hit2 += 1
+            elif t:
+                titles[key] = (s, t)
+        got2 = run_batches(list(dict.fromkeys(t for _, t in titles.values())))
+        for key, (s, t) in titles.items():
             rec = got2.get(t)
             if not rec:
                 continue
-            txt = clean_text(rec[0], name)
+            txt = clean_text(rec[0], s['name'])
             # 标题跑偏（「五当召」定位到「五当召镇」）的不收
-            if txt and not is_disambig(txt) and not off_topic(txt, name) \
-                    and (precise_title(t, name) or txt.startswith(name)):
-                db[name] = [txt, rec[1]]
+            if txt and (precise_title(t, s['name']) or txt.startswith(s['name'])) \
+                    and desc_ok(txt, s['name'], s['city'], s['prov']):
+                db[key] = [txt, rec[1]]
                 hit2 += 1
         print('  阶段B 命中 %d' % hit2, flush=True)
 
@@ -323,8 +417,7 @@ def do_spots(limit):
     if stale:
         print('  清理重名裸名键 %d 个（改用 省|市|名）' % len(stale), flush=True)
     save_json(SPOT_CACHE, db)
-    return db
-    save_json(SPOT_CACHE, db)
+    save_json(REJECT_CACHE, rejects)
     return db
 
 
@@ -375,8 +468,11 @@ if __name__ == '__main__':
     if not spot_db and not region_db:
         print('缓存为空，拒绝覆盖现有前端库（先跑一次抓取）')
         sys.exit(0)
-    # 空值（消歧义清理后回退手写文案的条目）直接剔除，避免导出空串
-    spot_out = {k: v[0] for k, v in spot_db.items() if v and v[0]}
+    # 空值（消歧义清理后回退手写文案的条目）直接剔除，避免导出空串；
+    # 人工拉黑的同理（--export-only 时也要挡住）
+    block = load_json(BLOCK_CACHE, {})
+    spot_out = {k: v[0] for k, v in spot_db.items()
+                if v and v[0] and k not in block}
     open(os.path.join(JS, 'spot-desc-db.js'), 'w', encoding='utf-8').write(js_export(
         spot_out,
         '// ═══ 景点真实简介库（中文维基百科词条首段，已转简体）═══\n'
