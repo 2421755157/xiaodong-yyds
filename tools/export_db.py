@@ -29,6 +29,12 @@ def main():
     if not db:
         print('data/img_db.json 为空，拒绝覆盖现有前端库（先跑 fetch_images.py）')
         return
+    # 重名景点（西湖/东湖/南湖…）只认「省|市|名」分城键：
+    # 裸名键如果留在库里，没抓到本地照的那一处会回落到别处的照片，
+    # 杭州西湖的荷花就会挂到惠州西湖头上。宁可空着显示占位图。
+    spots = load_json(os.path.join(DATA, 'spots_uniq.json'), [])
+    seen_names = Counter(s['name'] for s in spots)
+    dup = {n for n, c in seen_names.items() if c > 1}
     # 上一版主图库作为干净回退源
     prev = {}
     p = os.path.join(JS, 'spot-images-db.js')
@@ -40,6 +46,9 @@ def main():
     data, gallery = {}, {}
     cleaned = dropped = 0
     for k, v in db.items():
+        if '|' not in k and k in dup:
+            dropped += 1          # 重名景点的裸名图，来源城市不可靠，不导出
+            continue
         main = v['u']
         seen = {base_of(main)}
         ex = []
@@ -81,7 +90,8 @@ def main():
         'export const SPOT_GALLERY_DB = '))
 
     print('主图库 %d 条，置信分布 %s' % (len(data), dict(Counter(v[1] for v in data.values()))))
-    print('图组库 %d 处；过滤/去重 %d 条；主图敏感剔除 %d 条' % (len(gallery), cleaned, dropped))
+    print('图组库 %d 处；过滤/去重 %d 条；不导出 %d 条（重名裸名键 / 敏感图）'
+          % (len(gallery), cleaned, dropped))
 
 
 if __name__ == '__main__':

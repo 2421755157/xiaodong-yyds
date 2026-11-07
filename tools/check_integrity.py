@@ -334,6 +334,44 @@ try:
 except Exception as e:
     problems.append('简介库校验失败（%s）' % e)
 
+# 12) 图片库：重名景点不得共用一张主图
+#     图片库长期按裸名做键，46 个重名景点（101 处）共用一张照片：
+#     杭州西湖的荷花挂到了惠州西湖、绍兴东湖的石壁挂到了武汉东湖。
+#     现在按「省|市|名」分城存，裸名键必须彻底消失 —— 留着就会被没抓到本地照的
+#     那一处回落命中，等于又串回去。抓不到的分城键宁可空着显示占位图。
+try:
+    si_src = io.open(os.path.join(JS, 'spot-images-db.js'), encoding='utf-8').read()
+    si_head = si_src.index('export const SPOT_IMAGES_DB')
+    img_db = json.loads(si_src[si_src.index('{', si_head):si_src.rindex('}') + 1])
+    img_spots = json.load(io.open(os.path.join(ROOT, 'data', 'spots_uniq.json'),
+                                  encoding='utf-8'))
+    img_cnt = {}
+    for s in img_spots:
+        img_cnt[s['name']] = img_cnt.get(s['name'], 0) + 1
+    img_dup = {n for n, c in img_cnt.items() if c > 1}
+    leaked_bare = sorted(n for n in img_dup if n in img_db)
+    if leaked_bare:
+        problems.append('重名景点仍挂着裸名主图 %d 个（如 %s）'
+                        % (len(leaked_bare), '、'.join(leaked_bare[:3])))
+    # 同一名字的不同城市，主图不能是同一个文件
+    by_img = {}
+    for s in img_spots:
+        if img_cnt[s['name']] <= 1:
+            continue
+        e = img_db.get('%s|%s|%s' % (s['prov'], s['city'], s['name']))
+        if e:
+            by_img.setdefault(s['name'], []).append((s['city'], e[0]))
+    same = []
+    for n, rows in by_img.items():
+        us = [u for _, u in rows]
+        if len(set(us)) != len(us):
+            same.append('%s（%s）' % (n, '、'.join(c for c, _ in rows)))
+    if same:
+        problems.append('同名景点共用同一张主图 %d 个（如 %s）'
+                        % (len(same), '；'.join(same[:2])))
+except Exception as e:
+    problems.append('图片库校验失败（%s）' % e)
+
 print('检查完成：%d 个问题' % len(problems))
 for p in problems:
     print('  ✗', p)

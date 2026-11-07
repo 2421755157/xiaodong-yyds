@@ -322,7 +322,7 @@ async function renderNav() {
       const img = card.querySelector('img');
       markLoading(img);
       const custom = store.getCover(nav.prov.n + nav.city.n + s.n) || store.getCover(nav.city.n + s.n);
-      const coverUrl = custom || getSpotCover(s.n, nav.prov.n);
+      const coverUrl = custom || getSpotCover(s.n, nav.prov.n, s.t, SPOT_KEY.get(s));
       img.setAttribute('data-src', coverUrl);
       img.src = coverUrl;
       robustImg(img, () => { img.style.display = 'none'; });
@@ -701,7 +701,7 @@ function renderRelated(prov, city, spot) {
     it.innerHTML = '<img alt="" loading="lazy" referrerpolicy="no-referrer"><span>' + s.n + '</span>';
     const im = it.querySelector('img');
     markLoading(im);
-    im.src = getSpotCover(s.n, prov.n, s.t);
+    im.src = getSpotCover(s.n, prov.n, s.t, SPOT_KEY.get(s));
     im.addEventListener('error', () => { im.style.visibility = 'hidden'; });
     it.addEventListener('click', () => { closeLightbox(); openSpot(prov, city, s); });
     row.appendChild(it);
@@ -966,7 +966,7 @@ async function openSpot(prov, city, spot) {
   if (cover) {
     coverEl.innerHTML = '<img src="' + cover + '" alt="' + spot.n + '">';
   } else {
-    const real = getSpotCover(spot.n, prov.n, spot.t);
+    const real = getSpotCover(spot.n, prov.n, spot.t, SPOT_KEY.get(spot));
     if (real.startsWith('data:')) {
       // 终极降级：主题渐变占位
       coverEl.innerHTML = '<div style="position:absolute;inset:0;background:' + city.cover + '"></div><span class="cover-glyph">' + spot.n.charAt(0) + '</span>';
@@ -987,7 +987,7 @@ async function openSpot(prov, city, spot) {
       const el = $('#intro-cover');
       const cur = el.querySelector('img');
       if (cur && !cur.src.startsWith('data:')) return;     // 已经是真图
-      const real = getSpotCover(spot.n, prov.n, spot.t);
+      const real = getSpotCover(spot.n, prov.n, spot.t, SPOT_KEY.get(spot));
       if (real && !real.startsWith('data:')) {
         el.innerHTML = '<img src="' + real + '" alt="' + spot.n + '" referrerpolicy="no-referrer">';
       }
@@ -1044,7 +1044,7 @@ async function openSpot(prov, city, spot) {
   const buildGallery = () => {
     gal.innerHTML = '';
     galImgs.length = 0;
-    const realImgs = getSpotImages(spot.n, prov.n, 3, spot.t);
+    const realImgs = getSpotImages(spot.n, prov.n, 3, spot.t, SPOT_KEY.get(spot));
     for (let i = 0; i < 3; i++) {
       const fig = document.createElement('figure');
       fig.setAttribute('aria-label', '查看大图：' + caps[i]);
@@ -1287,7 +1287,7 @@ async function enterSpot(prov, city, spot) {
   const seed = spotSeed(spot.n);
   built = buildScene(sceneKey, themeKey, renderer, seed);
   // 真实照片看板：让程序化场景里也带着该景点的真实样貌
-  heroBillboard = addHeroBillboard(built.scene, getSpotCover(spot.n, prov.n, spot.t), built.spawn.pos);
+  heroBillboard = addHeroBillboard(built.scene, getSpotCover(spot.n, prov.n, spot.t, SPOT_KEY.get(spot)), built.spawn.pos);
   roamer.boundR = built.boundR;
   roamer.groundHeight = built.groundHeight;
   roamer.colliders = built.colliders || [];
@@ -1377,7 +1377,8 @@ function shootCover() {
     // 早先这里无条件把场景截图存成景点封面，结果「故宫」的封面变成一片
     // 通用地形灰底，真实照片被顶掉了。现在只在完全没有真实照片时兜底。
     if (store.getCover(activeCtx.prov + activeCtx.city + activeCtx.spotName)) return;
-    const real = getSpotCover(activeCtx.spotName, activeCtx.prov, activeCtx.spotType);
+    const real = getSpotCover(activeCtx.spotName, activeCtx.prov, activeCtx.spotType,
+      activeCtx.prov + '|' + activeCtx.city + '|' + activeCtx.spotName);
     if (real && !real.startsWith('data:')) return;
     const src = $('#scene-canvas');
     const c = document.createElement('canvas');
@@ -1453,7 +1454,8 @@ async function openSpotDetail() {
   const extra = '这是「' + activeSpot.name + '」里一处值得停下来的地方。' + nearHotspot.desc +
     '走近它，感受当下——风、光、声音，和你自己。在这里按 E 可以留下一枚专属足迹。';
   $('#detail-long').textContent = extra;
-  $('#detail-img').src = getSpotCover(activeSpot.name, activeCtx.prov);
+  $('#detail-img').src = getSpotCover(activeSpot.name, activeCtx.prov, activeSpot.t,
+    SPOT_KEY.get(activeSpot));
   $('#detail-img').onerror = () => { $('#detail-img').style.display = 'none'; };
   $('#detail-img').style.display = 'block';
   $('#spot-detail-modal').hidden = false;

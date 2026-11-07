@@ -440,6 +440,46 @@ await test('简介库: 找不到本地词条时宁可没有，也不套外地那
   assert.equal(SPOT_DESC_DB['大昭寺'], undefined, '裸名条目必须清掉，否则会串到呼和浩特');
 });
 
+// 图片库：重名景点按「省|市|名」分城存（与简介库、坐标库同一套键规则）。
+// 此前共用一张裸名主图，杭州西湖的荷花被惠州西湖拿去当封面。
+await test('图片库: 重名景点不得残留裸名键', async () => {
+  const { SPOT_IMAGES_DB } = await import('../js/spot-images-db.js');
+  const cnt = {};
+  for (const p of PROVINCES) for (const c of p.cities) for (const s of c.spots) {
+    cnt[s.n] = (cnt[s.n] || 0) + 1;
+  }
+  const leaked = Object.keys(cnt).filter(n => cnt[n] > 1 && SPOT_IMAGES_DB[n]);
+  assert.deepEqual(leaked, [], '仍是裸名键的重名景点：' + leaked.slice(0, 5).join('、'));
+});
+
+await test('图片库: 同名景点各处封面不是同一张', async () => {
+  const { SPOT_IMAGES_DB } = await import('../js/spot-images-db.js');
+  const byName = {};
+  for (const [k, e] of Object.entries(SPOT_IMAGES_DB)) {
+    if (k.indexOf('|') < 0 || !e || !e[0]) continue;     // 只查分城键
+    const n = k.slice(k.lastIndexOf('|') + 1);
+    (byName[n] = byName[n] || []).push(e[0]);
+  }
+  const same = Object.entries(byName)
+    .filter(([, v]) => v.length > 1 && new Set(v).size === 1);
+  assert.deepEqual(same.map(x => x[0]), [], '这些同名景点各处仍是同一张图');
+});
+
+await test('取图: 惠州西湖拿到的是自己的照片，不是杭州那张', () => {
+  const hz = si.getSpotCover('西湖', '浙江', 'water', spotDescKey('浙江', '杭州', '西湖'));
+  const huizhou = si.getSpotCover('西湖', '广东', 'water', spotDescKey('广东', '惠州', '西湖'));
+  assert.ok(!hz.startsWith('data:'), '杭州西湖应有实景图，实际：' + hz.slice(0, 40));
+  assert.ok(!huizhou.startsWith('data:'), '惠州西湖应有实景图');
+  assert.notEqual(huizhou, hz, '两处西湖不能共用同一张照片');
+});
+
+await test('取图: 没抓到本地照的分城键回落到占位图，不借外地照片', () => {
+  // 铜陵凤凰山：标题里没出现「铜陵」的候选全被否掉，宁可空着
+  const u = si.getSpotCover('凤凰山', '安徽', 'mountain',
+    spotDescKey('安徽', '铜陵', '凤凰山'));
+  assert.ok(u.startsWith('data:'), '缺图应回落到主题占位图，实际：' + u.slice(0, 60));
+});
+
 // ─────────────────────────── 汇总 ───────────────────────────// 注意：不要写 '\n通过 %d，失败 %d' % (...) ——
 // 全角逗号会让 util.format 把 %d 当字面量，整行输出成 NaN。
 console.log('\n通过 ' + passed + '，失败 ' + failed + '，跳过 ' + skipped);

@@ -86,8 +86,10 @@ function normImgUrl(u) {
 
 // 过滤明显非风景（地图/标志/扫描件等）
 // ── 同步：封面（卡片 / 3D 详情用）──
-export function getSpotCover(spotName, provName, type) {
-  const e = IMAGES_DB.get(spotName);
+// key 是「省|市|名」分城键：重名景点（西湖/东湖/南湖…）各用本地那一处的照片。
+// 导出层已经剔掉这些名字的裸名键，取不到就返回占位图——宁可没图，不挂外地照。
+export function getSpotCover(spotName, provName, type, key) {
+  const e = (key && IMAGES_DB.get(key)) || IMAGES_DB.get(spotName);
   if (e) return e[0];                         // 静态库真实照片
   const c = loadCache();
   if (c[spotName] && c[spotName][0]) {
@@ -121,7 +123,7 @@ export function imageStats() {
   return { total: keys.length, c3, c2, c1, galleryCount: Object.keys(GALLERY_DB.data()).length };
 }
 
-export function getSpotImages(spotName, provName, count = 3, type) {
+export function getSpotImages(spotName, provName, count = 3, type, key) {
   const out = [];
   // 用 Set 去重：原来用 indexOf 逐个查，图集满载时是 O(n²)
   const seen = new Set();
@@ -129,11 +131,11 @@ export function getSpotImages(spotName, provName, count = 3, type) {
     const v = normImgUrl(u);
     if (v && !seen.has(v)) { seen.add(v); out.push(v); }
   };
-  const e = IMAGES_DB.get(spotName);
+  const e = (key && IMAGES_DB.get(key)) || IMAGES_DB.get(spotName);
   if (e) {
     push(e[0]);
     // 补充图组（懒加载后才有）：让图集 3 张都是实景
-    const g = GALLERY_DB.get(spotName);
+    const g = (key && GALLERY_DB.get(key)) || GALLERY_DB.get(spotName);
     if (g) for (const u of g) push(u);
   }
   const c = loadCache();

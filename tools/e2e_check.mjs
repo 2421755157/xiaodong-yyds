@@ -819,14 +819,16 @@ function check(name, ok, detail = '') {
         if (!m || m.hidden) return '';
         const d = (document.getElementById('intro-desc') || {}).textContent || '';
         if (d.length < ${minLen}) return '';
+        const cv = document.querySelector('#intro-cover img');
         return JSON.stringify({
           name: (document.getElementById('intro-name') || {}).textContent || '',
           desc: d,
+          cover: (cv && cv.getAttribute('src')) || '',
         });
       })()`);
       return j || 0;
     }, 15000);
-    return raw ? JSON.parse(raw) : { name: '', desc: '' };
+    return raw ? JSON.parse(raw) : { name: '', desc: '', cover: '' };
   };
   const hz = await openSpotByHash('广东', '惠州', '西湖');
   check('同名景点简介不串城（惠州西湖）',
@@ -865,6 +867,23 @@ function check(name, ok, detail = '') {
   check('杭州西湖的小地图落在杭州',
     hzHome.name === '西湖' && !!hzHomeNear,
     hzHomeMap.hidden ? '小地图未显示' : 'location=' + String(hzHomeMap.loc));
+
+  // 9f) 重名景点的封面不能串城
+  //     图片库和简介库一样，长期只按景点名做键：惠州西湖的封面其实是杭州西湖，
+  //     武汉东湖拿到的是绍兴东湖的石壁。现在按「省|市|名」分城存，
+  //     没抓到本地照的那一处显示主题占位图（data:），也不借外地照片。
+  const hzCover = (hzHome.cover || '').split('/').pop();
+  const hzLocalCover = (hz.cover || '').split('/').pop();
+  check('同名景点封面不串城（两处西湖不同图）',
+    !!hzLocalCover && !!hzCover && hzLocalCover !== hzCover
+      && hz.cover.indexOf('img/baike/') >= 0 && hzHome.cover.indexOf('img/baike/') >= 0,
+    `惠州=${hzLocalCover || hz.cover.slice(0, 18)} 杭州=${hzCover || hzHome.cover.slice(0, 18)}`);
+
+  // 分城键没抓到本地照时，只能回落占位图，不能借同名的外地照片
+  const tl = await openSpotByHash('安徽', '铜陵', '凤凰山', 2);
+  check('没本地照时分城景点回落到占位图',
+    tl.name === '凤凰山' && (tl.cover === '' || tl.cover.indexOf('data:') === 0),
+    '封面=' + (tl.cover ? tl.cover.slice(0, 30) : '(空)'));
 
   const hh = await openSpotByHash('内蒙古', '呼和浩特', '大昭寺');
   check('无本地词条时不套外地简介（呼和浩特）',
