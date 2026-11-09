@@ -295,11 +295,37 @@ function check(name, ok, detail = '') {
   const hash1 = await cdp.eval("location.hash");
   check('URL hash 同步', !!hash1 && hash1.startsWith('#/'), hash1);
 
+  // 3a) 城市卡的文案来自省市简介库，仍然用不上 590KB 的景点简介库。
+  //     它以前在进站那一刻就被拉下来，到货后把同样的省卡原样重绘一遍。
+  const descDbAtCity = await cdp.eval(
+    "performance.getEntriesByType('resource').some(r => /spot-desc-db\\.js/.test(r.name))");
+  check('城市层不拉景点简介库（省下的 590KB）', descDbAtCity === false, '已拉=' + descDbAtCity);
+
   // 4) 城市卡 → 景点列表
   await cdp.eval("document.querySelector('.spot-card').click()");
   await waitDepth(2);
   const spotCards = await cdp.eval("document.querySelectorAll('.spot-card').length");
   check('点击市卡进入景点列表', spotCards > 0, spotCards + ' 张');
+
+  // 4a) 到了景点层才该拉简介库，且卡片摘要要真的换成词条原文。
+  //     判据用长度：手写兜底简介全部 ≤29 字（1891 处里只有 1 处到 30 字），
+  //     词条首段截到 44 字，所以 ≥30 字基本只可能来自库里。
+  const descAtSpotRaw = await waitFor(async () => {
+    const loaded = await cdp.eval(
+      "performance.getEntriesByType('resource').some(r => /spot-desc-db\\.js/.test(r.name))");
+    if (!loaded) return null;
+    const r = await cdp.eval(`(() => {
+      const ds = [...document.querySelectorAll('#spot-grid .spot-card p')].map(p => p.textContent.trim());
+      return JSON.stringify({ n: ds.length, ge30: ds.filter(d => d.length >= 30).length,
+        first: ds[0] || '' });
+    })()`);
+    const o = JSON.parse(r);
+    return o.n > 0 && o.ge30 >= Math.ceil(o.n * 0.6) ? r : null;
+  }, 15000);
+  const dsp = descAtSpotRaw ? JSON.parse(descAtSpotRaw) : { n: 0, ge30: 0, first: '' };
+  check('景点层才拉简介库，卡片摘要换成词条原文',
+    !!descAtSpotRaw && dsp.ge30 >= Math.ceil(dsp.n * 0.6),
+    `${dsp.ge30}/${dsp.n} 条为词条原文，首条：${dsp.first.slice(0, 20)}`);
 
   const imgDbLoaded = await cdp.eval(
     "performance.getEntriesByType('resource').some(r => /spot-images-db\\.js/.test(r.name))");
@@ -956,14 +982,18 @@ function check(name, ok, detail = '') {
     const n = await cdp.eval("document.querySelectorAll('.spot-card').length");
     return n > 0 ? n : 0;
   }, 15000);
-  await waitFor(async () => await cdp.eval(
-    "performance.getEntriesByType('resource').some(r => /spot-desc-db\\.js/.test(r.name))") === true, 15000);
-  await sleep(800);
+  // 省卡文案来自省市简介库，不需要景点简介库；等一秒确认它没有偷偷跟过来
+  // （以前这里会主动 load()，590KB 白拉一趟还重绘一次）
+  await sleep(1500);
+  const provDescDb = await cdp.eval(
+    "performance.getEntriesByType('resource').some(r => /spot-desc-db\\.js/.test(r.name))");
   const firstDesc = await cdp.eval(
     "((document.querySelector('#spot-grid .spot-card p') || {}).textContent || '').trim()");
   check('欢迎页进站后主页照常渲染（卡片+真实简介）',
     gateCards > 0 && firstDesc.length > 10,
     gateCards + ' 张卡片，首卡简介 ' + firstDesc.length + ' 字：' + firstDesc.slice(0, 18));
+  check('省份网格不拉景点简介库（590KB 空转）',
+    provDescDb === false, '已拉=' + provDescDb);
 
   console.log('\n通过 ' + results.filter(r => r.ok).length + '/' + results.length);
   const failed = results.filter(r => !r.ok);

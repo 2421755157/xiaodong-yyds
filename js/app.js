@@ -332,10 +332,18 @@ async function renderNav() {
   }
   syncHash();
   // 简介库异步就绪后，用真实简介重绘一次卡片（只重绘一次，避免循环）
-  if (!DESC_DB.ready() && !descDBRepainted) {
+  //
+  // 只在景点层拉：卡片摘要 shortDesc() 取的是景点简介，省/市两级的文案来自
+  // 省市简介库（provDesc / cityDesc），跟这份 590KB 的库毫无关系。
+  // 之前这里不看层级，进站（还在省份网格）就把它拉了下来，到货后再把同样的
+  // 34 张省卡原样重绘一遍 —— 一次 590KB 的空转，还跟省卡封面抢带宽。
+  // 搜索和详情弹窗各自会 load()，不靠这里兜底。
+  if (nav.level === 'spot' && !DESC_DB.ready() && !descDBRepainted) {
     DESC_DB.load().then(() => {
       if (descDBRepainted) return;
       descDBRepainted = true;
+      // 加载期间用户可能已经点回省市层：这时网格里没有景点卡，重绘纯属空转
+      if (nav.level !== 'spot') return;
       renderNav();
     });
   }
