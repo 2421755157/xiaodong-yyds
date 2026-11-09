@@ -28,6 +28,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import sys
 import time
 import urllib.parse
@@ -45,6 +46,19 @@ SHRINK_W = 720          # 3 格图集单格在桌面端 ≤ 340 CSS px，720 足
 DEAD_HOSTS = ('wikimedia.org', 'bcebos.com')
 CDN_HOSTS = ('qhimgs1.com', 'qhimgs2.com', 'qhimgs3.com', 'qhimgs4.com',
              'qhimgs5.com', 'qhimgs6.com')
+
+# 补充图组专用：标题命中这些词的一律不要。
+# 冷门景点的图搜结果里混着大量「景区周边」的东西——白酒品牌景点搜出来的是礼盒装产品图、
+# 乡镇景点搜出来的是脱贫攻坚动员会、山岳景点搜出来的是山下餐馆门脸、溶洞景点搜出来的是
+# 同名商场中庭。这些标题里都确实带着景点名，光靠名字校验拦不住，只能按内容类型挡。
+# 2026-11-09 人工核验 85 张新图时抓到 9 张这类，逐条补进这里。
+GALLERY_BAD = re.compile(
+    r'(会议|动员|攻坚|脱贫|扶贫|签约|揭牌|培训|招聘|'
+    r'股票|股价|股份|激励|财报|营收|'
+    r'礼盒|价格|多少钱|购买|正品|旗舰店|包邮|促销|批发|专卖|加盟|代理|'
+    r'白酒|酒瓶|浓香|酱香|'
+    r'餐厅|饭庄|饭店|农家乐|民宿|住宿|酒店|宾馆|客房|'
+    r'商场|购物中心|KTV|会所|夜总会|售楼|楼盘|装修)')
 
 try:
     from PIL import Image
@@ -179,17 +193,41 @@ def main():
 
     # 主图刚补过的景点此时也没有补充图，一并纳入
     emptied = [k for k, v in img_db.items() if is_local(v.get('u')) and not v.get('extra')]
+    # 人工核验过「图搜里根本没有可用实景」的景点，别再反复抓回来
+    reject = load_json(os.path.join(DATA, 'img_gallery_reject.json'), {})
+    skipped = [k for k in emptied if k in reject]
+    if skipped:
+        emptied = [k for k in emptied if k not in reject]
+        print('按 data/img_gallery_reject.json 跳过 %d 个（%s）'
+              % (len(skipped), '、'.join(skipped[:4])))
     if args.mains_only:
         emptied = []
         print('（--mains-only：跳过补充图补抓）')
     filled = 0
     for k in emptied:
-        s = spots.get(k) or {}
+        name = k.split('|')[-1]
+        # spots_uniq 只按裸名索引；分城键（省|市|名）要退回裸名查城市，
+        # 否则「城市+景点名」这一路查询会丢，冷门分城景点更难命中。
+        s = spots.get(k) or spots.get(name) or {}
         a = api.get(k) or {}
-        urls = [shrink(u) for u in F.fetch_images(k, a.get('title') or '', s.get('city', ''))]
-        urls = [u for u in urls if not is_dead(u)]
-        # 首条常常就是主图那张，从第二条开始取，避免图集里出现同一张照片
-        urls = urls[1:3] or urls[:2]
+        # 宽松档：冷门景点往往只剩竖图或小图，而图集格子是 object-fit:cover
+        # （4:3 裁切），竖图照样能看，严格档的「横构图」门槛会把它们全否掉。
+        # 但标题里必须真的出现景点名——只有城市名的多是城市实景，不能当这一处的照片。
+        cands = F.fetch_images(name, a.get('title') or '', s.get('city', ''),
+                               relaxed=True, with_titles=True)
+        seen = {base_of(img_db[k].get('u') or '')}   # 主图那张不再进图集
+        urls = []
+        for u, ttl in cands:
+            if name not in ttl or GALLERY_BAD.search(ttl):
+                continue
+            u = shrink(u)
+            b = base_of(u)
+            if b in seen or is_dead(u):
+                continue
+            seen.add(b)
+            urls.append(u)
+            if len(urls) >= 2:
+                break
         if urls:
             img_db[k]['extra'] = urls
             filled += 1

@@ -198,8 +198,12 @@ IMG_BAD_HARD = re.compile(r'地图|位置图|路线图|示意图|平面图|logo|
                           r'二维码|头像|表情|壁纸下载|图表|行程单')
 
 
-def fetch_images(name, title, city='', relaxed=False):
+def fetch_images(name, title, city='', relaxed=False, with_titles=False):
     """返回候选图 URL 列表（按相关度/构图排序，最多 3 个）
+
+    with_titles=True 时返回 [(url, 图片标题)]，供调用方按标题再做一道校验。
+    补充图组需要这一档：图集格子是 object-fit:cover，误配一张外地照片
+    比没有更糟，所以不能只靠「城市出现在标题里」就收。
 
     泛名要用城市限定，否则搜出来是别处的东西：
     「铁塔」（开封琉璃砖塔）单独搜回来的是埃菲尔铁塔和澳门电信塔；
@@ -270,9 +274,11 @@ def fetch_images(name, title, city='', relaxed=False):
         if 1.2 <= ratio <= 2.0:
             score += 1.5
         score += min(len(ttl), 28) / 28.0
-        scored.append((score, u))
+        scored.append((score, u, ttl))
     scored.sort(key=lambda x: -x[0])
-    return [u for _, u in scored[:3]]
+    if with_titles:
+        return [(u, ttl) for _, u, ttl in scored[:3]]
+    return [u for _, u, _ in scored[:3]]
 
 
 # ─── 主流程 ───

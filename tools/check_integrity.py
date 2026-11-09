@@ -372,6 +372,31 @@ try:
 except Exception as e:
     problems.append('图片库校验失败（%s）' % e)
 
+# 13) 图组：3 格图集里不该出现重复照片
+#     详情页把「主图 + 图组 2 张」拼成 3 格，主图混进图组或图组内部重复，
+#     用户看到的就是同一张照片占两格。补图组的脚本按文件名去重，
+#     这里守数据出口，防止有人手工往 img_db 里塞。
+try:
+    gl_src = io.open(os.path.join(JS, 'spot-gallery-db.js'), encoding='utf-8').read()
+    gl_head = gl_src.index('export const SPOT_GALLERY_DB')
+    gal_db = json.loads(gl_src[gl_src.index('{', gl_head):gl_src.rindex('}') + 1])
+
+    def base_name(u):
+        return (u or '').rstrip('/').split('/')[-1].split('?')[0]
+
+    dup_in = [k for k, v in gal_db.items()
+              if len({base_name(u) for u in v}) != len(v)]
+    main_in = [k for k, v in gal_db.items()
+               if k in img_db and base_name(img_db[k][0]) in {base_name(u) for u in v}]
+    if dup_in:
+        problems.append('图组内部有重复照片 %d 处（如 %s）'
+                        % (len(dup_in), '、'.join(dup_in[:3])))
+    if main_in:
+        problems.append('图组里混进了主图那张 %d 处（如 %s）'
+                        % (len(main_in), '、'.join(main_in[:3])))
+except Exception as e:
+    problems.append('图组校验失败（%s）' % e)
+
 print('检查完成：%d 个问题' % len(problems))
 for p in problems:
     print('  ✗', p)
