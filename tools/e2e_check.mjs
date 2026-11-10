@@ -136,6 +136,11 @@ function check(name, ok, detail = '') {
   await cdp.send('Runtime.enable');
   await cdp.send('Log.enable');
   await cdp.send('Page.enable');
+  // 把自己置为前台页面。浏览器实例里可能有多个 target（本次新建的、初始的
+  // about:blank、上次跑剩下的），非前台 target 的 rAF 会被节流到约 2 次/秒，
+  // 而"星空还在不在流动"这类断言正是量 450ms 内画布有没有变化 —— 一旦被节流，
+  // 画布纹丝不动，就会误报"恢复正常动效后星空没动"（还会把前一条"静止"顺带假通过）。
+  await cdp.send('Page.bringToFront');
   await cdp.send('Network.enable');
   // 关掉缓存。对线上站点跑时必须这样，否则 GitHub Pages 的 max-age=600
   // 会让浏览器用上一次的旧模块，测出来一堆"回归"，其实只是缓存。
@@ -1046,9 +1051,22 @@ function check(name, ok, detail = '') {
   //     已经把卡片入场/悬停/骨架屏全停了，唯独这块 canvas 自己跑 rAF，漏在外面。
   //     判定用「每行相对行首的像素偏离量」：纯渐变横平竖直，偏离量为 0；
   //     有星点就有几万，能同时守住「停了」和「没画瞎」。
+  //
+  //     前提是页面真的在前台：后台 target 的 rAF 被节流到约 2 次/秒，画布 450ms
+  //     不带变一下，会让"静止"假通过、"恢复流动"假失败。先把它量出来当守门断言。
+  await cdp.send('Page.bringToFront');
+  const rafTicks = await cdp.eval(`new Promise(r => {
+    let n = 0; const t0 = performance.now();
+    (function f() { n++; performance.now() - t0 < 300 ? requestAnimationFrame(f) : r(n); })();
+  })`);
+  check('动效测试跑在前台页面（rAF 未被节流）', rafTicks >= 10,
+    '300ms 内 ' + rafTicks + ' 帧，visibility=' + await cdp.eval('document.visibilityState'));
+
   const STAR = `(() => {
     const c = document.querySelector('#gate-particles');
-    if (!c || !c.width) return { dev: -1 };
+    const gate = document.querySelector('#gate');
+    const vis = !!gate && !gate.hidden;
+    if (!c || !c.width) return { dev: -1, vis };
     const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
     let dev = 0;
     for (let y = 0; y < c.height; y += 4) {
@@ -1060,30 +1078,41 @@ function check(name, ok, detail = '') {
         dev += diff < 0 ? -diff : diff;
       }
     }
-    return { dev };
+    return { dev, vis };
   })()`;
   const REDUCE = [{ name: 'prefers-reduced-motion', value: 'reduce' }];
 
   await cdp.send('Emulation.setEmulatedMedia', { features: REDUCE });
   await cdp.eval('localStorage.clear()');
   await cdp.navigate(BASE);
-  await sleep(1800);
+  // 等欢迎页真的画出来，而不是赌一个固定毫秒数
+  await waitFor(() => cdp.eval(
+    "!document.getElementById('gate').hidden && document.querySelector('#gate-particles').width > 0"
+  ), 8000);
+  await sleep(600);
   const r1 = await cdp.eval(STAR); await sleep(450); const r2 = await cdp.eval(STAR);
-  check('减少动效下欢迎页星空静止', r1.dev === r2.dev && r1.dev >= 0,
-    r1.dev === r2.dev ? '两帧偏离量同为 ' + r1.dev : '仍在变化 ' + r1.dev + ' → ' + r2.dev);
-  check('减少动效下星空没有画成空白', r1.dev > 5000,
+  check('减少动效下欢迎页星空静止', r1.vis && r1.dev === r2.dev && r1.dev >= 0,
+    !r1.vis ? '门禁屏没显示，量的不是欢迎页'
+      : (r1.dev === r2.dev ? '两帧偏离量同为 ' + r1.dev : '仍在变化 ' + r1.dev + ' → ' + r2.dev));
+  check('减少动效下星空没有画成空白', r1.vis && r1.dev > 5000,
     '偏离量 ' + r1.dev + '（纯渐变应为 0）');
 
   // 13) 开关中途切换要立刻生效，不能要求刷新（系统里现改现看是常态）
   await cdp.send('Emulation.setEmulatedMedia', { features: [] });
   await sleep(700);
-  const n1 = await cdp.eval(STAR); await sleep(450); const n2 = await cdp.eval(STAR);
-  check('恢复正常动效后星空继续流动', n1.dev !== n2.dev,
-    n1.dev + ' → ' + n2.dev);
+  const n1 = await cdp.eval(STAR);
+  // 等它动起来，而不是赌固定 450ms：机器慢、掉帧时 450ms 可能一帧都没画，
+  // 真冻结又永远不会变，所以轮询既不会误报也不会放过。
+  const n2 = await waitFor(async () => {
+    const s = await cdp.eval(STAR);
+    return s.dev !== n1.dev ? s : null;
+  }, 2500) || await cdp.eval(STAR);
+  check('恢复正常动效后星空继续流动', n1.vis && n1.dev !== n2.dev,
+    '偏离量 ' + n1.dev + ' → ' + n2.dev + (n1.vis ? '' : '（门禁屏没显示）'));
   await cdp.send('Emulation.setEmulatedMedia', { features: REDUCE });
   await sleep(700);
   const q1 = await cdp.eval(STAR); await sleep(450); const q2 = await cdp.eval(STAR);
-  check('运行中切到减少动效立即冻结', q1.dev === q2.dev,
+  check('运行中切到减少动效立即冻结', q1.vis && q1.dev === q2.dev,
     q1.dev === q2.dev ? '已停于 ' + q1.dev : '仍在变化 ' + q1.dev + ' → ' + q2.dev);
   await cdp.send('Emulation.setEmulatedMedia', { features: [] });
 
