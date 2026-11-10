@@ -995,6 +995,98 @@ function check(name, ok, detail = '') {
   check('省份网格不拉景点简介库（590KB 空转）',
     provDescDb === false, '已拉=' + provDescDb);
 
+  // 11) 说明性文字对比度
+  //     三级灰 --ink-faint 是给「还没有足迹」这类说明文字用的，13px 属于小字，
+  //     必须 ≥4.5:1。以前用的 #5d594f 在页面底只有 2.75:1、卡片底 2.54:1，
+  //     低视力用户基本看不清。这里直接量浏览器算出来的颜色，防止以后再被调暗。
+  const contrast = await cdp.eval(`(() => {
+    const parse = s => { const m = s.match(/[\\d.]+/g); return m ? m.map(Number) : null; };
+    const lin = c => { c /= 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+    const lum = c => 0.2126 * lin(c[0]) + 0.7152 * lin(c[1]) + 0.0722 * lin(c[2]);
+    // 背景要逐层合成：.panel 的 --card 是 rgba(20,28,25,.72)，
+    // 只取最近的纯色会一路退到页面底色，算出来的对比度虚高。
+    const effBg = el => {
+      const stack = [];
+      for (let n = el; n && n.nodeType === 1; n = n.parentElement) {
+        const p = parse(getComputedStyle(n).backgroundColor);
+        if (!p) continue;
+        const a = p.length > 3 ? p[3] : 1;
+        if (a <= 0) continue;
+        stack.push([p[0], p[1], p[2], a]);
+        if (a >= 0.999) break;
+      }
+      let c = [11, 16, 15];
+      for (let i = stack.length - 1; i >= 0; i--) {
+        const [r, g, b, a] = stack[i];
+        c = [r * a + c[0] * (1 - a), g * a + c[1] * (1 - a), b * a + c[2] * (1 - a)];
+      }
+      return c;
+    };
+    const out = [];
+    for (const sel of ['.tl-empty', '.panel-note', '.spot-meta', '.brand-text i']) {
+      for (const el of document.querySelectorAll(sel)) {
+        const cs = getComputedStyle(el);
+        const fg = parse(cs.color); if (!fg) continue;
+        const L1 = lum(fg), L2 = lum(effBg(el));
+        const ratio = (Math.max(L1, L2) + 0.05) / (Math.min(L1, L2) + 0.05);
+        out.push({ sel, ratio: +ratio.toFixed(2), color: cs.color });
+      }
+    }
+    return out;
+  })()`);
+  const worst = contrast.length
+    ? contrast.reduce((a, b) => (b.ratio < a.ratio ? b : a))
+    : { sel: '未找到待测元素', ratio: 0, color: '' };
+  check('说明性文字对比度够 AA 4.5:1',
+    contrast.length > 0 && worst.ratio >= 4.5,
+    '最低 ' + worst.sel + ' ' + worst.ratio + ':1（' + worst.color + '），共测 ' + contrast.length + ' 处');
+
+  // 12) 减少动效：欢迎页星空必须冻结，但不能冻结成一片空白
+  //     入场星空是整站面积最大的持续动效（整屏 110 个点在漂）。之前 CSS 层
+  //     已经把卡片入场/悬停/骨架屏全停了，唯独这块 canvas 自己跑 rAF，漏在外面。
+  //     判定用「每行相对行首的像素偏离量」：纯渐变横平竖直，偏离量为 0；
+  //     有星点就有几万，能同时守住「停了」和「没画瞎」。
+  const STAR = `(() => {
+    const c = document.querySelector('#gate-particles');
+    if (!c || !c.width) return { dev: -1 };
+    const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+    let dev = 0;
+    for (let y = 0; y < c.height; y += 4) {
+      const off = y * c.width * 4;
+      const base = d[off] + d[off + 1] + d[off + 2];
+      for (let x = 0; x < c.width; x += 2) {
+        const v = d[off + x * 4] + d[off + x * 4 + 1] + d[off + x * 4 + 2];
+        const diff = v - base;
+        dev += diff < 0 ? -diff : diff;
+      }
+    }
+    return { dev };
+  })()`;
+  const REDUCE = [{ name: 'prefers-reduced-motion', value: 'reduce' }];
+
+  await cdp.send('Emulation.setEmulatedMedia', { features: REDUCE });
+  await cdp.eval('localStorage.clear()');
+  await cdp.navigate(BASE);
+  await sleep(1800);
+  const r1 = await cdp.eval(STAR); await sleep(450); const r2 = await cdp.eval(STAR);
+  check('减少动效下欢迎页星空静止', r1.dev === r2.dev && r1.dev >= 0,
+    r1.dev === r2.dev ? '两帧偏离量同为 ' + r1.dev : '仍在变化 ' + r1.dev + ' → ' + r2.dev);
+  check('减少动效下星空没有画成空白', r1.dev > 5000,
+    '偏离量 ' + r1.dev + '（纯渐变应为 0）');
+
+  // 13) 开关中途切换要立刻生效，不能要求刷新（系统里现改现看是常态）
+  await cdp.send('Emulation.setEmulatedMedia', { features: [] });
+  await sleep(700);
+  const n1 = await cdp.eval(STAR); await sleep(450); const n2 = await cdp.eval(STAR);
+  check('恢复正常动效后星空继续流动', n1.dev !== n2.dev,
+    n1.dev + ' → ' + n2.dev);
+  await cdp.send('Emulation.setEmulatedMedia', { features: REDUCE });
+  await sleep(700);
+  const q1 = await cdp.eval(STAR); await sleep(450); const q2 = await cdp.eval(STAR);
+  check('运行中切到减少动效立即冻结', q1.dev === q2.dev,
+    q1.dev === q2.dev ? '已停于 ' + q1.dev : '仍在变化 ' + q1.dev + ' → ' + q2.dev);
+  await cdp.send('Emulation.setEmulatedMedia', { features: [] });
+
   console.log('\n通过 ' + results.filter(r => r.ok).length + '/' + results.length);
   const failed = results.filter(r => !r.ok);
   if (failed.length) {

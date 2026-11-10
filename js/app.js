@@ -133,10 +133,18 @@ function toast(msg, ms = 2600) {
 }
 
 // ═════════ 登录屏粒子 ═════════
+// 这是全站面积最大的一处持续动效：整屏 110 个点在漂，用户进门第一眼就是它。
+// 系统开了「减少动效」时只铺一帧静态星空——视觉不塌，但不再逐帧推进；
+// 中途改系统设置也即时生效（matchMedia change），不必刷新。
+const RM_REDUCE = matchMedia('(prefers-reduced-motion: reduce)');
+let gateRaf = 0;
+let gateSync = null;      // 当前的「按偏好重排」入口，供 change 监听调用
+let gateResize = null;    // 上一轮的 resize 回调，登出重进时先摘掉
+
 function startGateParticles() {
   const cv = $('#gate-particles');
   const g = cv.getContext('2d');
-  let W, H, pts = [];
+  let W, H, pts = [], t = 0;
   function resize() {
     W = cv.width = innerWidth; H = cv.height = innerHeight;
     pts = Array.from({ length: 110 }, () => ({
@@ -147,24 +155,48 @@ function startGateParticles() {
       a: Math.random() * 0.5 + 0.15, ph: Math.random() * Math.PI * 2,
     }));
   }
-  resize(); addEventListener('resize', resize);
-  let t = 0;
-  (function loop() {
-    if ($('#gate').hidden) return;
-    requestAnimationFrame(loop); t += 0.016;
+  // 画一帧。advance=false 时不推进位置、也不走时间轴，用于静态星空：
+  // 同样的输入永远画出同样的画面，画布不会自己变。
+  function paint(advance) {
+    if (advance) t += 0.016;
     g.clearRect(0, 0, W, H);
     const grd = g.createLinearGradient(0, 0, 0, H);
     grd.addColorStop(0, '#0b1216'); grd.addColorStop(0.6, '#0b100f'); grd.addColorStop(1, '#12100c');
     g.fillStyle = grd; g.fillRect(0, 0, W, H);
     for (const p of pts) {
-      p.y += p.vy; p.x += p.vx;
-      if (p.y < -4) { p.y = H + 4; p.x = Math.random() * W; }
+      if (advance) {
+        p.y += p.vy; p.x += p.vx;
+        if (p.y < -4) { p.y = H + 4; p.x = Math.random() * W; }
+      }
       const tw = p.a + Math.sin(t * 2 + p.ph) * 0.18;
       g.beginPath(); g.arc(p.x, p.y, p.r, 0, Math.PI * 2);
       g.fillStyle = 'rgba(211,185,138,' + Math.max(0.04, tw) + ')'; g.fill();
     }
-  })();
+  }
+  function frame() {
+    if ($('#gate').hidden) { gateRaf = 0; return; }
+    gateRaf = requestAnimationFrame(frame);
+    paint(true);
+  }
+  function sync() {
+    cancelAnimationFrame(gateRaf); gateRaf = 0;
+    if (RM_REDUCE.matches) { paint(false); return; }
+    frame();
+  }
+
+  resize();
+  if (gateResize) removeEventListener('resize', gateResize);
+  gateResize = () => { resize(); if (RM_REDUCE.matches) paint(false); };
+  addEventListener('resize', gateResize);
+  gateSync = sync;
+  sync();
 }
+
+// 系统「减少动效」开关中途变化时立刻跟上；只注册一次。
+RM_REDUCE.addEventListener('change', () => {
+  if ($('#gate').hidden || !gateSync) return;
+  gateSync();
+});
 
 function show(id) {
   for (const s of ['#gate', '#home', '#stage']) $(s).hidden = (s !== id);

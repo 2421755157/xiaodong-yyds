@@ -5,6 +5,10 @@
   --bg2:#101816;
   --ink:#e8e2d4;
   --ink-dim:#9a958a;
+  /* 三级灰：说明性文字用。#5d594f 在 --bg 上只有 2.75:1、在卡片上 2.54:1，
+     13px 正文远不够 4.5:1。这个色在页面底 5.14:1、卡片底 4.76:1，仍明显弱于 --ink-dim，
+     不会和正文抢注意力。 */
+  --ink-faint:#8a8474;
   --gold:#d3b98a;
   --gold-dim:rgba(211,185,138,.35);
   --teal:#8fb8a8;
@@ -72,7 +76,7 @@ input,textarea{font-family:inherit;color:var(--ink)}
 }
 #gate-name:focus{border-color:var(--gold-dim)}
 #gate-name::placeholder{color:#5d594f}
-.gate-foot{font-size:12px;color:#5d594f;letter-spacing:2px}
+.gate-foot{font-size:12px;color:var(--ink-faint);letter-spacing:2px}
 
 /* ═══════════ 主页 ═══════════ */
 #home{position:fixed;inset:0;overflow-y:auto;padding:0 48px 60px;
@@ -157,7 +161,7 @@ input,textarea{font-family:inherit;color:var(--ink)}
 .panel-head h3{font-family:var(--serif);font-size:18px;letter-spacing:3px}
 .panel-note{font-size:12px;color:var(--ink-dim)}
 .timeline{display:flex;flex-direction:column;gap:0}
-.tl-empty{color:#5d594f;font-size:13px;padding:20px 0;text-align:center;letter-spacing:2px}
+.tl-empty{color:var(--ink-faint);font-size:13px;padding:20px 0;text-align:center;letter-spacing:2px}
 .tl-item{
   display:grid;grid-template-columns:110px 1fr auto;gap:16px;
   padding:14px 4px;border-bottom:1px dashed rgba(211,185,138,.1);align-items:start;
@@ -169,7 +173,7 @@ input,textarea{font-family:inherit;color:var(--ink)}
 .tl-main .tl-place{font-size:11px;color:var(--teal);margin-top:4px;letter-spacing:1px}
 .tl-side{display:flex;align-items:center;gap:10px}
 .tl-side .score{font-size:12px;color:var(--gold)}
-.tl-del{background:none;border:none;color:#5d594f;font-size:16px;padding:2px 6px}
+.tl-del{background:none;border:none;color:var(--ink-faint);font-size:16px;padding:2px 6px}
 .tl-del:hover{color:var(--danger)}
 
 /* ═══════════ 3D 场景屏 ═══════════ */
@@ -267,7 +271,7 @@ input,textarea{font-family:inherit;color:var(--ink)}
 /* 每日一签 */
 .fortune-card{text-align:center;border-color:var(--gold)}
 .fortune-eyebrow{font-size:11px;letter-spacing:6px;color:var(--ink-dim);margin-bottom:8px}
-.fortune-serial{font-size:11px;color:#5d594f;letter-spacing:2px;margin-bottom:12px}
+.fortune-serial{font-size:11px;color:var(--ink-faint);letter-spacing:2px;margin-bottom:12px}
 .fortune-level{display:inline-block;font-size:13px;letter-spacing:3px;color:var(--gold);border:1px solid var(--gold-dim);border-radius:3px;padding:4px 14px;margin-bottom:18px;background:rgba(211,185,138,.06)}
 .fortune-card h3{font-size:24px;line-height:1.8;margin-bottom:14px;color:var(--gold)}
 .fortune-card p:last-of-type{font-size:13px;color:var(--ink-dim);line-height:2}
@@ -441,8 +445,8 @@ input,textarea{font-family:inherit;color:var(--ink)}
 #quiz-submit:disabled{opacity:.4;cursor:not-allowed}
 
 /* ═══════════ 免责声明 ═══════════ */
-.lock-disclaimer{font-size:11px;color:#5d594f;margin-top:14px;letter-spacing:1px}
-.hud-disclaimer{font-size:11px;color:#5d594f;margin-left:8px}
+.lock-disclaimer{font-size:11px;color:var(--ink-faint);margin-top:14px;letter-spacing:1px}
+.hud-disclaimer{font-size:11px;color:var(--ink-faint);margin-left:8px}
 .lock-hint-mobile{display:none}
 
 /* ═══════════ 触摸控制（移动端） ═══════════ */
