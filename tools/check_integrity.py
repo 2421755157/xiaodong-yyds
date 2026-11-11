@@ -397,10 +397,14 @@ try:
 except Exception as e:
     problems.append('图组校验失败（%s）' % e)
 
-# 14) 长介绍：详情页「历史沿革」整段不得讲别的城市
+# 14) 长介绍：详情页「历史沿革」整段不得讲别的城市，且重名景点必须分城存
 #     短简介从 11-07 起就有上面的闸门，长介绍一直没人管：抓下来直接入库，
 #     于是青岛「金沙滩」配的是山西朔州金沙滩镇的镇史、嘉兴「南湖」配的是
 #     唐山南湖公园的修复史。这类错误不报错、不 404，只能靠扫。
+#     11-11 补了地域闸门，但库里仍是「裸名」做键：46 组重名景点共用一条正文，
+#     惠州西湖照样挂杭州那条。所以现在还要校验键本身——
+#       · 重名景点（跨市同名）不许再有裸名键，必须是「省|市|名」
+#       · 分城键必须能对上列表里真实存在的那一处
 #     校验的是导出的 js/long-db-*.js（用户实际拿到的），data 改了忘导出会在这里露馅。
 try:
     from place_guard import long_reject                      # noqa: E402
@@ -424,12 +428,30 @@ try:
                                 encoding='utf-8'))
         _blk = json.load(io.open(os.path.join(ROOT, 'data', 'desc_block.json'),
                                  encoding='utf-8'))
-        _bad = []
-        for _n, _t in long_all.items():
-            _why = long_reject(_t, _places.get(_n, []),
-                               ok=_n in _ok, blocked=_n in _blk)
+        _bad, _leak, _ghost = [], [], []
+        for _k, _t in long_all.items():
+            _parts = _k.split('|')
+            if len(_parts) == 3:
+                _prov, _city, _name = _parts
+                _own = [(_prov, _city)]
+                if (_prov, _city) not in _places.get(_name, []):
+                    _ghost.append(_k)
+                    continue
+            else:
+                _name = _k
+                _own = _places.get(_name, [])
+                if len({c for _p, c in _own}) > 1:
+                    _leak.append(_k)
+                    continue
+            _why = long_reject(_t, _own, ok=_name in _ok, blocked=_name in _blk)
             if _why:
-                _bad.append('%s（%s）' % (_n, _why))
+                _bad.append('%s（%s）' % (_k, _why))
+        if _leak:
+            problems.append('长介绍仍是裸名键的重名景点 %d 处（如 %s）→ python tools/rekey_long_desc.py --apply'
+                            % (len(_leak), '、'.join(_leak[:3])))
+        if _ghost:
+            problems.append('长介绍挂着列表里没有的「省|市|名」%d 处（如 %s）'
+                            % (len(_ghost), '、'.join(_ghost[:3])))
         if _bad:
             problems.append('长介绍讲的是别处 %d 条（如 %s）→ python tools/clean_long_desc.py'
                             % (len(_bad), '；'.join(_bad[:2])))

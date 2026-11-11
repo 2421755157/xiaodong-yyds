@@ -12,8 +12,12 @@
     python tools/fetch_long_desc.py --export-only   # 只导出前端分片
 
 产出：
-    data/long_db.json                    { 景点名: 长介绍正文 }
-    js/long-db-0.js .. js/long-db-7.js  按首字哈希分 8 片，详情页按需加载单片
+    data/long_db.json                    { 键: 长介绍正文 }
+                                         不重名的景点用裸名；重名景点用「省|市|名」
+                                         分城存（与简介/坐标/图片三套库同一套约定），
+                                         否则惠州西湖会继承杭州西湖那条正文。
+                                         迁移见 tools/rekey_long_desc.py
+    js/long-db-0.js .. js/long-db-7.js  按键首字分 8 片，详情页按需加载单片
 """
 import argparse, json, os, re, sys, time, urllib.parse
 from concurrent.futures import ThreadPoolExecutor
@@ -87,9 +91,23 @@ def build_long(text, name):
     return body
 
 
-def chunk_of(name):
-    """按首字码分片：JS 端用同样规则取片"""
+def chunk_of(key):
+    """按「景点名」首字码分片，与键是裸名还是「省|市|名」无关。
+
+    前端只有景点名和完整键两种输入，分片规则若跟着键走，同一处景点在
+    「裸名条目」和「分城条目」下会落到不同分片，详情页就会去错片找正文。
+    固定按名字分，两边永远一致（JS 见 js/app.js longChunkIndex）。
+    """
+    name = key.rsplit('|', 1)[-1]
     return ord(name[0]) % CHUNKS if name else 0
+
+
+def split_key(key):
+    """『省|市|名』→ (prov, city, name)；裸名 → ('', '', 名)"""
+    parts = key.split('|')
+    if len(parts) == 3:
+        return parts[0], parts[1], parts[2]
+    return '', '', key
 
 
 def strip_lead(long_text, short_text):
@@ -109,7 +127,7 @@ def strip_lead(long_text, short_text):
 
 
 def export_chunks(db):
-    """把 {景点名: 长介绍} 按首字哈希分 8 片写进 js/long-db-*.js"""
+    """把 {键: 长介绍} 按键首字码分 8 片写进 js/long-db-*.js"""
     buckets = [dict() for _ in range(CHUNKS)]
     for k, v in db.items():
         buckets[chunk_of(k)][k] = v
@@ -133,7 +151,10 @@ def export():
         # 1) 长文去注音/转换注噪声
         body = NOISE_PAREN.sub('', PINYIN_PAREN.sub('', db[k]))
         # 2) 短简介同样清洗后，取首句作为「重复段」基准
+        #    键可能是「省|市|名」分城键，短简介库不一定有同一条，退回裸名再查一次
         st = short.get(k)
+        if st is None:
+            st = short.get(split_key(k)[2])
         st = st[0] if isinstance(st, list) and st else (st or '')
         st = NOISE_PAREN.sub('', PINYIN_PAREN.sub('', st)).strip()
         first_sent = st.split('。')[0] if st else ''
@@ -185,35 +206,38 @@ if __name__ == '__main__':
         stat = {'fail': 0, 'short': 0, 'disambig': 0, 'wrong': 0}
 
         def work(item):
-            name, title = item
+            key, title = item
+            # 分城键自带「这一处」的身份，闸门只认那一处；裸名键才用同名全部实例
+            kprov, kcity, name = split_key(key)
+            own = [(kprov, kcity)] if (kprov and kcity) else places.get(name, [])
             try:
                 full = fetch_full_text(title)
             except Exception:
                 stat['fail'] += 1
-                return name, ''
+                return key, ''
             if not full:
                 stat['fail'] += 1
-                return name, ''
+                return key, ''
             # 消歧义页（「XX可以指：…」）正文只有几十字，抓了也是废的
             if is_disambig(full):
                 stat['disambig'] += 1
-                return name, ''
+                return key, ''
             body = build_long(full, name)
             if not body:
                 stat['short'] += 1
-                return name, body
-            why = long_reject(body, places.get(name, []),
+                return key, body
+            why = long_reject(body, own,
                               ok=name in ok_set, blocked=name in blocked)
             if why:
                 stat['wrong'] += 1
-                return name, ''
-            return name, body
+                return key, ''
+            return key, body
 
         with ThreadPoolExecutor(max_workers=a.workers) as ex:
-            for name, body in ex.map(work, todo):
+            for key, body in ex.map(work, todo):
                 done += 1
                 if body:
-                    db[name] = body
+                    db[key] = body
                     hit += 1
                 if done % 20 == 0:
                     save_json(CACHE, db)
@@ -236,9 +260,11 @@ if __name__ == '__main__':
                 found = {}
                 with ThreadPoolExecutor(max_workers=12) as ex:
                     def locate(k):
-                        s = meta.get(k, {})
+                        # 分城键先拆出裸名再查 meta，否则查不到城市，搜索会落空
+                        s = meta.get(split_key(k)[2], {})
                         try:
-                            return k, search_title(k, s.get('city', ''), s.get('prov', ''))
+                            return k, search_title(split_key(k)[2],
+                                                   s.get('city', ''), s.get('prov', ''))
                         except Exception:
                             return k, None
                     for k, t in ex.map(locate, retry):
@@ -250,10 +276,10 @@ if __name__ == '__main__':
                     print('  阶段B 待抓 %d 个' % len(todo2), flush=True)
                     done2 = hit2 = 0
                     with ThreadPoolExecutor(max_workers=a.workers) as ex:
-                        for name, body in ex.map(work, todo2):
+                        for key, body in ex.map(work, todo2):
                             done2 += 1
                             if body:
-                                db[name] = body
+                                db[key] = body
                                 hit2 += 1
                             if done2 % 20 == 0:
                                 save_json(CACHE, db)

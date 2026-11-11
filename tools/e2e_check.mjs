@@ -983,6 +983,40 @@ function check(name, ok, detail = '') {
     zzy.length > 40 && zzy.indexOf('园林') >= 0,
     zzy.slice(0, 30) || '(被清空了)');
 
+  // 9g) 重名景点的历史沿革各归各城（长介绍库改成「省|市|名」之后）
+  //     库里以前按裸名做键，46 组重名景点共用一条正文：惠州西湖整段是杭州的、
+  //     长春南湖公园是唐山采煤沉陷区的、马鞍山太白楼是济宁的。
+  //     分片是异步加载的，"读到空"既可能是真没有、也可能是还没到货，
+  //     所以读到一个状态后要再确认一次稳定，别把"还没加载"当成"确实没有"。
+  const longStateOf = async (prov, city, name) => {
+    await openSpotByHash(prov, city, name, 2);
+    let prev = null;
+    const t0 = Date.now();
+    for (let i = 0; i < 20; i++) {
+      const st = await cdp.eval(`(() => {
+        const nm = (document.getElementById('intro-name') || {}).textContent || '';
+        const box = document.getElementById('intro-history');
+        const open = !!box && !box.hidden;
+        return { nm: nm, open: open,
+                 txt: open ? ((document.getElementById('hist-text') || {}).textContent || '') : '' };
+      })()`);
+      if (st.nm === name) {
+        if (prev && prev.open === st.open && prev.txt === st.txt && Date.now() - t0 > 900) return st;
+        prev = st;
+      }
+      await sleep(250);
+    }
+    return prev || { open: false, txt: '' };
+  };
+  const hzxh = await longStateOf('广东', '惠州', '西湖');
+  check('历史沿革不串城（惠州西湖不写杭州）',
+    !hzxh.txt.includes('杭州') && !hzxh.txt.includes('苏堤'),
+    hzxh.txt ? hzxh.txt.slice(0, 30) : '(未显示历史沿革，符合预期)');
+  const hzxh2 = await longStateOf('浙江', '杭州', '西湖');
+  check('同名景点里对上的那处历史沿革还在（杭州西湖）',
+    hzxh2.txt.length > 40 && hzxh2.txt.includes('杭州'),
+    hzxh2.txt.slice(0, 30) || '(被清空了)');
+
   // 10) 欢迎页（首次访客）不做主页才用得上的下载
   //     原先是无条件 renderNav()：新访客还停在「怎么称呼你」那一屏，
   //     后台已经把简介库 615KB + 景点图库 118KB + three 内核 326KB + 省卡封面图

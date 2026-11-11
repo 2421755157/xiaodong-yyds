@@ -1,3 +1,6 @@
 __pycache__/
 *.pyc
 .workbuddy/
+
+# 长介绍分城键迁移前的裸名快照（2.2MB；原始数据在 git 历史里，不必再存一份）
+data/long_db_by_name.json

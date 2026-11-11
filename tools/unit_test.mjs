@@ -444,38 +444,76 @@ await test('简介库: 找不到本地词条时宁可没有，也不套外地那
 // 抓取管线原先只判「是不是消歧义页」，同名异地 / 同名异物的整段正文照样入库，
 // 于是青岛「金沙滩」挂的是山西朔州金沙滩镇的镇史、嘉兴「南湖」挂的是
 // 唐山南湖公园的采煤沉陷区修复史。这类错误不报错、不 404，只能靠断言盯着。
+// 11-11 补了地域闸门，但键还是裸名：46 组重名景点共用一条正文，
+// 「广东惠州西湖」的详情页整段在讲浙江杭州。键也得一起管。
 const LONG_DB = {};
+const LONG_CHUNK_OF = {};
 for (let i = 0; i < 8; i++) {
   const m = await import('../js/long-db-' + i + '.js');
-  Object.assign(LONG_DB, m['LONG_DESC_DB_' + i] || {});
+  const chunk = m['LONG_DESC_DB_' + i] || {};
+  Object.assign(LONG_DB, chunk);
+  for (const k of Object.keys(chunk)) LONG_CHUNK_OF[k] = i;
 }
+const longName = k => k.slice(k.lastIndexOf('|') + 1);
+// 跨市重名的景点（西湖 / 南湖公园 / 太白楼 …）
+const LONG_DUP = (() => {
+  const cities = {};
+  for (const p of PROVINCES) for (const c of p.cities) for (const s of c.spots) {
+    (cities[s.n] = cities[s.n] || new Set()).add(c.n);
+  }
+  return Object.keys(cities).filter(n => cities[n].size > 1);
+})();
 
 await test('长介绍库: 分片合起来有量（导出没断链）', () => {
   const n = Object.keys(LONG_DB).length;
   assert.ok(n >= 1600, '只读回 ' + n + ' 条，分片可能没导出完整');
 });
 
+await test('长介绍库: 重名景点不得残留裸名键', () => {
+  const leaked = LONG_DUP.filter(n => LONG_DB[n]);
+  assert.deepEqual(leaked, [], '仍是裸名键的重名景点：' + leaked.slice(0, 5).join('、'));
+});
+
+await test('长介绍库: 同名异地各归各城，不互相继承正文', () => {
+  // 杭州西湖有正文，惠州西湖没有对应词条就该留空（详情页隐藏这一块），
+  // 绝不能把杭州那条挂到惠州头上。
+  assert.ok(LONG_DB['浙江|杭州|西湖'], '杭州西湖的长介绍丢了');
+  assert.equal(LONG_DB['广东|惠州|西湖'], undefined, '惠州西湖不应有长介绍');
+  assert.ok(LONG_DB['河北|唐山|南湖公园'], '唐山南湖公园的长介绍丢了');
+  assert.equal(LONG_DB['吉林|长春|南湖公园'], undefined, '长春南湖公园不应有长介绍');
+  assert.ok(LONG_DB['山东|济宁|太白楼'], '济宁太白楼的长介绍丢了');
+  assert.equal(LONG_DB['安徽|马鞍山|太白楼'], undefined, '马鞍山太白楼不应有长介绍');
+});
+
+await test('长介绍库: 每条键都落在自己的分片里（导出规则与前端一致）', () => {
+  // 分片按「景点名」首字取模，不看键前缀，裸名与分城键才会落进同一片
+  const wrong = Object.keys(LONG_DB)
+    .filter(k => LONG_CHUNK_OF[k] !== longName(k).charCodeAt(0) % 8);
+  assert.deepEqual(wrong, [], '片号对不上：' + wrong.slice(0, 3).join('、'));
+});
+
 await test('长介绍库: 不再挂讲别处的整段正文', () => {
   const bad = ['南湖', '金沙滩', '湖广会馆', '中山公园', '热海', '千佛洞', '高庙',
-    '香山寺', '梅花山', '马鞍山', '龙王塘'];
-  const still = bad.filter(n => LONG_DB[n]);
+    '香山寺', '梅花山', '马鞍山', '龙王塘', '沙湖', '天鹅湖', '博物馆'];
+  const still = Object.keys(LONG_DB).filter(k => bad.includes(longName(k)));
   assert.deepEqual(still, [], '仍在库里：' + still.join('、'));
 });
 
 await test('长介绍库: 没有消歧义页与站点模板文字', () => {
   const re = /可以指|可能指|指的是下列|消歧义|百度百科是一部内容开放|本表收录|本列表列出/;
-  const hit = Object.keys(LONG_DB).filter(n => re.test(LONG_DB[n].slice(0, 60)));
+  const hit = Object.keys(LONG_DB).filter(k => re.test(LONG_DB[k].slice(0, 60)));
   assert.deepEqual(hit, [], '命中：' + hit.slice(0, 5).join('、'));
 });
 
 await test('长介绍库: 保留下来的正文仍讲本市', () => {
   const cases = [
     ['拙政园', '园林'],
-    ['西湖', '杭州'],
+    ['浙江|杭州|西湖', '杭州'],
+    ['河北|唐山|南湖公园', '唐山'],
   ];
-  for (const [name, word] of cases) {
-    assert.ok((LONG_DB[name] || '').includes(word),
-      name + ' 的长介绍应提到' + word + '：（' + (LONG_DB[name] || '').slice(0, 30) + '）');
+  for (const [key, word] of cases) {
+    assert.ok((LONG_DB[key] || '').includes(word),
+      key + ' 的长介绍应提到' + word + '：（' + (LONG_DB[key] || '').slice(0, 30) + '）');
   }
 });
 

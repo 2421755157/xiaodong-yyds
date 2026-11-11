@@ -870,7 +870,10 @@ function openPano(opts) {
 }
 
 // ═══ 历史沿革长介绍（分片按需加载）═══
-// 8 个分片各 ~100KB，打开景点时只加载对应那片
+// 8 个分片各 ~100KB，打开景点时只加载对应那片。
+// 分片规则必须与 tools/fetch_long_desc.py 的 chunk_of() 完全一致：
+// **按景点名首字取模**，与键是裸名还是「省|市|名」无关 —— 否则裸名条目
+// 会去「省|市|名」算出来的那片里找，正文整段消失（实测踩过）。
 const LONG_CHUNKS = 8;
 const longChunkCache = new Map();
 function longChunkIndex(name) {
@@ -893,8 +896,12 @@ async function renderHistory(spot) {
   const type = spot.t;
   title.textContent = (type === 'ruin' || type === 'temple' || type === 'modern')
     ? '来历 · 地标故事' : '历史沿革';
+  // 键规则与简介/坐标库一致：重名景点按「省|市|名」各存一条，
+  // 取的时候先查分城键、再退到裸名（不重名的景点只有裸名）。
+  // 只按裸名取会把杭州西湖的正文挂到惠州西湖的历史沿革上。
+  const longKey = SPOT_KEY.get(spot) || spot.n;
   const db = await loadLongChunk(longChunkIndex(spot.n));
-  const body = db[spot.n];
+  const body = db[longKey] || db[spot.n];
   if (!body) { box.hidden = true; return; }
   box.hidden = false;
   txt.textContent = body;
@@ -1506,8 +1513,10 @@ async function openSpotDetail() {
   if (histBox && histText) {
     histBox.hidden = true;
     try {
+      // 与详情页同一套键：3D 里看的也是「这一处」，不能按裸名去取
+      const key = spotDescKey(activeCtx.prov, activeCtx.city, activeSpot.name);
       const db = await loadLongChunk(longChunkIndex(activeSpot.name));
-      const real = db[activeSpot.name];
+      const real = db[key] || db[activeSpot.name];
       if (real) {
         histText.textContent = real;
         histBox.hidden = false;
