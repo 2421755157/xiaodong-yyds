@@ -440,8 +440,46 @@ await test('简介库: 找不到本地词条时宁可没有，也不套外地那
   assert.equal(SPOT_DESC_DB['大昭寺'], undefined, '裸名条目必须清掉，否则会串到呼和浩特');
 });
 
-// 图片库：重名景点按「省|市|名」分城存（与简介库、坐标库同一套键规则）。
-// 此前共用一张裸名主图，杭州西湖的荷花被惠州西湖拿去当封面。
+// 长介绍库：详情页「历史沿革」正文。
+// 抓取管线原先只判「是不是消歧义页」，同名异地 / 同名异物的整段正文照样入库，
+// 于是青岛「金沙滩」挂的是山西朔州金沙滩镇的镇史、嘉兴「南湖」挂的是
+// 唐山南湖公园的采煤沉陷区修复史。这类错误不报错、不 404，只能靠断言盯着。
+const LONG_DB = {};
+for (let i = 0; i < 8; i++) {
+  const m = await import('../js/long-db-' + i + '.js');
+  Object.assign(LONG_DB, m['LONG_DESC_DB_' + i] || {});
+}
+
+await test('长介绍库: 分片合起来有量（导出没断链）', () => {
+  const n = Object.keys(LONG_DB).length;
+  assert.ok(n >= 1600, '只读回 ' + n + ' 条，分片可能没导出完整');
+});
+
+await test('长介绍库: 不再挂讲别处的整段正文', () => {
+  const bad = ['南湖', '金沙滩', '湖广会馆', '中山公园', '热海', '千佛洞', '高庙',
+    '香山寺', '梅花山', '马鞍山', '龙王塘'];
+  const still = bad.filter(n => LONG_DB[n]);
+  assert.deepEqual(still, [], '仍在库里：' + still.join('、'));
+});
+
+await test('长介绍库: 没有消歧义页与站点模板文字', () => {
+  const re = /可以指|可能指|指的是下列|消歧义|百度百科是一部内容开放|本表收录|本列表列出/;
+  const hit = Object.keys(LONG_DB).filter(n => re.test(LONG_DB[n].slice(0, 60)));
+  assert.deepEqual(hit, [], '命中：' + hit.slice(0, 5).join('、'));
+});
+
+await test('长介绍库: 保留下来的正文仍讲本市', () => {
+  const cases = [
+    ['拙政园', '园林'],
+    ['西湖', '杭州'],
+  ];
+  for (const [name, word] of cases) {
+    assert.ok((LONG_DB[name] || '').includes(word),
+      name + ' 的长介绍应提到' + word + '：（' + (LONG_DB[name] || '').slice(0, 30) + '）');
+  }
+});
+
+
 await test('图片库: 重名景点不得残留裸名键', async () => {
   const { SPOT_IMAGES_DB } = await import('../js/spot-images-db.js');
   const cnt = {};

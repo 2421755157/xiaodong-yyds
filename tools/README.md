@@ -32,11 +32,13 @@ tools/
 ├── fill_missing_desc.py   补维基通道没抓到的简介（走百科 openapi + 城市一致性校验）
 ├── build_pinyin_db.py     生成拼音索引（gugong / bdlg 这类输入也能搜）
 ├── fetch_long_desc.py    抓历史沿革长介绍 → js/long-db-0..7.js（8 片按需加载）
+├── clean_long_desc.py    清洗长介绍：剔掉整段讲别处的正文（幂等，与抓取闸门同一份判定）
+├── place_guard.py        景点文案「张冠李戴」判定：短简介 mismatch()、长介绍 long_reject()
 ├── fetch_panorama.py     抓真实全景图 → js/panorama-db.js（sphere/wide）
 ├── fetch_coords.py       抓景点坐标 → js/coords-db.js（维基 + Wikidata + Photon，无需密钥）
 ├── resolve_disambig.py   消歧义词条重定向（「盘山可以指：…」→ 正确条目）
-├── check_integrity.py    静态集成检查（DOM id / import 路径 / 导出名）
-└── e2e_check.mjs         端到端测试（CDP 直连浏览器，72 项交互断言）
+├── check_integrity.py    静态集成检查（DOM id / import 路径 / 导出名 / 数据闸门）
+└── e2e_check.mjs         端到端测试（CDP 直连浏览器，96 项交互断言）
 
 data/                     原始缓存（断点续跑用，可直接提交进仓库）
 ├── spots_uniq.json        1891 个去重景点索引
@@ -52,7 +54,7 @@ data/                     原始缓存（断点续跑用，可直接提交进仓
 
 ```bash
 python tools/check_integrity.py    # 0 个问题才提交
-node tools/e2e_check.mjs           # 72/72 才提交（需先起服务与浏览器调试端口）
+node tools/e2e_check.mjs           # 96/96 才提交（需先起服务与浏览器调试端口）
 ```
 它会检查：JS 里引用的每个 `$('#id')` 在 index.html 里是否存在、
 每条 `import` 路径是否有对应文件、每个具名导入在目标文件里是否真的被导出
@@ -322,3 +324,31 @@ await send('Network.clearBrowserCache');   // 关键
 
 > 注意：不要为了绕防盗链给整站加 `<meta name="referrer" content="no-referrer">`。
 > 百度**静态地图**反过来要求 Referer 在白名单内，全局关掉会让小地图直接挂掉。
+
+**26. 短简介有地域闸门，长介绍也得有——它是「整段」在讲别处。**
+
+11-07 给短简介上了 `place_guard` + `desc_block` 之后，卡片上不再出现外地词条；
+但**详情页的「历史沿革」一直没判过**：`fetch_long_desc.py` 只判「是不是消歧义页」，
+抓回来直接入库。实测 1729 条里有 55 条整段讲的是别的城市：
+
+| 景点 | 正文实际讲的是 |
+|---|---|
+| 山东青岛 金沙滩 | 山西朔州金沙滩镇的镇史 |
+| 浙江嘉兴 南湖 | 唐山南湖公园的采煤沉陷区修复史 |
+| 广西梧州 中山公园 | 北京中山公园 |
+| 新疆昌吉 千佛洞 | 甘肃瓜州东千佛洞 |
+| 云南腾冲 热海 | 日本静冈县热海市 |
+
+注意这批里有 11 条**短简介早已拉黑**（`desc_block`：唐城 / 岳飞庙 / 梅园 / 铜山…），
+只是长介绍这条通道没人管，所以页面上还挂着。**同一个景点有两份文案，
+两道闸门必须都装**。
+
+判定 `place_guard.long_reject(text, places, ok, blocked)`，和抓取管线、集成检查共用
+一份实现；人工核验过确实讲的是本市的写进 `data/long_ok.json` 放行
+（盘山正文里有「北京市旅游局批准 5A」、横店影视城里有「香港街」、图们江写中朝界河，
+按规则都会被误伤）。清洗脚本 `tools/clean_long_desc.py` 幂等，剔掉的原文连同原因
+存进 `data/long_dropped.json`，可复查可回滚。
+
+> 踩坑：`check_integrity.py` 必须校验**导出的 `js/long-db-*.js`**，不是 `data/long_db.json`。
+> 改了 data 忘了 `--export-only`，用户拿到的还是旧分片——校验 data 只能证明自己没改错数据。
+

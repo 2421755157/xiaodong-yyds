@@ -21,6 +21,7 @@ from concurrent.futures import ThreadPoolExecutor
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from common import (DATA, JS, NOISE_PAREN, PINYIN_PAREN, ZHW, get_json,
                     is_disambig, js_export, load_json, save_json, search_title)
+from place_guard import long_reject
 
 CACHE = os.path.join(DATA, 'long_db.json')
 WORKERS = 12
@@ -107,6 +108,20 @@ def strip_lead(long_text, short_text):
     return rest if len(rest) > 80 else long_text
 
 
+def export_chunks(db):
+    """把 {景点名: 长介绍} 按首字哈希分 8 片写进 js/long-db-*.js"""
+    buckets = [dict() for _ in range(CHUNKS)]
+    for k, v in db.items():
+        buckets[chunk_of(k)][k] = v
+    for i, b in enumerate(buckets):
+        open(os.path.join(JS, 'long-db-%d.js' % i), 'w', encoding='utf-8').write(js_export(
+            b,
+            '// ═══ 景点历史沿革长介绍（分片 %d/%d）═══\n'
+            '// 生成：tools/fetch_long_desc.py。按首字哈希分片，详情页按需加载单片。\n'
+            'export const LONG_DESC_DB_%d = ' % (i + 1, CHUNKS, i)))
+    return buckets
+
+
 def export():
     db = load_json(CACHE, {})
     if not db:
@@ -132,15 +147,7 @@ def export():
         if body != db[k]:
             cleaned += 1
         db[k] = body
-    buckets = [dict() for _ in range(CHUNKS)]
-    for k, v in db.items():
-        buckets[chunk_of(k)][k] = v
-    for i, b in enumerate(buckets):
-        open(os.path.join(JS, 'long-db-%d.js' % i), 'w', encoding='utf-8').write(js_export(
-            b,
-            '// ═══ 景点历史沿革长介绍（分片 %d/%d）═══\n'
-            '// 生成：tools/fetch_long_desc.py。按首字哈希分片，详情页按需加载单片。\n'
-            'export const LONG_DESC_DB_%d = ' % (i + 1, CHUNKS, i)))
+    buckets = export_chunks(db)
     save_json(CACHE, db)          # 清洗结果回写缓存，避免下次重复处理
     print('清洗 %d 处（含注音去除与去重），已回写缓存' % cleaned)
     print('导出 %d 条 → %d 个分片（%s）' % (
@@ -168,7 +175,14 @@ if __name__ == '__main__':
         t0 = time.time()
         done = hit = 0
 
-        stat = {'fail': 0, 'short': 0, 'disambig': 0}
+        # 入库前的「讲的是不是本市」闸门，判定规则与 check_integrity 同一份
+        places = {}
+        for s in load_json(os.path.join(DATA, 'spots_uniq.json'), []):
+            places.setdefault(s['name'], []).append((s.get('prov', ''), s.get('city', '')))
+        ok_set = load_json(os.path.join(DATA, 'long_ok.json'), {})
+        blocked = load_json(os.path.join(DATA, 'desc_block.json'), {})
+
+        stat = {'fail': 0, 'short': 0, 'disambig': 0, 'wrong': 0}
 
         def work(item):
             name, title = item
@@ -187,6 +201,12 @@ if __name__ == '__main__':
             body = build_long(full, name)
             if not body:
                 stat['short'] += 1
+                return name, body
+            why = long_reject(body, places.get(name, []),
+                              ok=name in ok_set, blocked=name in blocked)
+            if why:
+                stat['wrong'] += 1
+                return name, ''
             return name, body
 
         with ThreadPoolExecutor(max_workers=a.workers) as ex:
@@ -199,8 +219,9 @@ if __name__ == '__main__':
                     save_json(CACHE, db)
                     print('  %d/%d 命中 %d  %.0fs [已保存]' % (done, len(todo), hit, time.time() - t0), flush=True)
         save_json(CACHE, db)
-        print('本轮命中 %d / %d，总计 %d（抓取失败 %d，正文过短 %d，消歧义 %d）'
-              % (hit, done, len(db), stat['fail'], stat['short'], stat['disambig']))
+        print('本轮命中 %d / %d，总计 %d（抓取失败 %d，正文过短 %d，消歧义 %d，讲的是别处 %d）'
+              % (hit, done, len(db), stat['fail'], stat['short'], stat['disambig'],
+                 stat['wrong']))
 
         # ── 阶段B：短简介记录的词条名取不到时，用搜索反查真实词条名再抓 ──
         # 冷门景点的中文名常常不是维基词条名（「清名桥古运河」→「清名桥」），

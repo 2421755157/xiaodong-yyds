@@ -949,6 +949,40 @@ function check(name, ok, detail = '') {
     yf.name === '岳飞庙' && yf.desc.indexOf('开封') < 0 && yf.desc.indexOf('朱仙镇') < 0,
     yf.desc.slice(0, 34) || '(弹窗未打开)');
 
+  // 9f) 详情页「历史沿革」整段不能讲别的城市
+  //     短简介有地域闸门，长介绍原先没有：抓回来只要不是消歧义页就入库，
+  //     于是嘉兴南湖的历史沿革是唐山南湖公园的采煤沉陷区修复史、
+  //     青岛金沙滩的是山西朔州金沙滩镇的镇史、梧州中山公园的是北京中山公园。
+  //     整段正文全在讲别处，比没有正文糟得多，而且不报错不 404。
+  const longTextOf = async (prov, city, name) => {
+    await openSpotByHash(prov, city, name, 2);
+    for (let i = 0; i < 12; i++) {
+      const t = await cdp.eval(`(() => {
+        const box = document.getElementById('intro-history');
+        if (!box || box.hidden) return '';
+        return (document.getElementById('hist-text') || {}).textContent || '';
+      })()`);
+      if (t) return t;
+      await sleep(250);
+    }
+    return '';
+  };
+  const jt = await longTextOf('浙江', '嘉兴', '南湖');
+  check('历史沿革不串城（嘉兴南湖不写唐山）',
+    jt.indexOf('唐山') < 0 && jt.indexOf('开滦') < 0,
+    jt ? jt.slice(0, 34) : '(无长介绍，符合预期)');
+
+  const js2 = await longTextOf('山东', '青岛', '金沙滩');
+  check('历史沿革不串城（青岛金沙滩不写朔州）',
+    js2.indexOf('朔州') < 0 && js2.indexOf('怀仁') < 0,
+    js2 ? js2.slice(0, 34) : '(无长介绍，符合预期)');
+
+  // 反向守一条：正常的景点不能因为清洗被连带清空
+  const zzy = await longTextOf('江苏', '苏州', '拙政园');
+  check('正常景点的历史沿革还在（拙政园）',
+    zzy.length > 40 && zzy.indexOf('园林') >= 0,
+    zzy.slice(0, 30) || '(被清空了)');
+
   // 10) 欢迎页（首次访客）不做主页才用得上的下载
   //     原先是无条件 renderNav()：新访客还停在「怎么称呼你」那一屏，
   //     后台已经把简介库 615KB + 景点图库 118KB + three 内核 326KB + 省卡封面图

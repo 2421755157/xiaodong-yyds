@@ -397,6 +397,45 @@ try:
 except Exception as e:
     problems.append('图组校验失败（%s）' % e)
 
+# 14) 长介绍：详情页「历史沿革」整段不得讲别的城市
+#     短简介从 11-07 起就有上面的闸门，长介绍一直没人管：抓下来直接入库，
+#     于是青岛「金沙滩」配的是山西朔州金沙滩镇的镇史、嘉兴「南湖」配的是
+#     唐山南湖公园的修复史。这类错误不报错、不 404，只能靠扫。
+#     校验的是导出的 js/long-db-*.js（用户实际拿到的），data 改了忘导出会在这里露馅。
+try:
+    from place_guard import long_reject                      # noqa: E402
+    long_all = {}
+    for _i in range(8):
+        _p = os.path.join(JS, 'long-db-%d.js' % _i)
+        if not os.path.exists(_p):
+            continue
+        _src = io.open(_p, encoding='utf-8').read()
+        _head = _src.index('export const LONG_DESC_DB_')
+        long_all.update(json.loads(_src[_src.index('{', _head):_src.rindex('}') + 1]))
+    if not long_all:
+        problems.append('js/long-db-*.js 读不出长介绍（跑 python tools/fetch_long_desc.py --export-only 重新导出）')
+    else:
+        _places = {}
+        for _s in json.load(io.open(os.path.join(ROOT, 'data', 'spots_uniq.json'),
+                                    encoding='utf-8')):
+            _places.setdefault(_s['name'], []).append((_s.get('prov', ''),
+                                                       _s.get('city', '')))
+        _ok = json.load(io.open(os.path.join(ROOT, 'data', 'long_ok.json'),
+                                encoding='utf-8'))
+        _blk = json.load(io.open(os.path.join(ROOT, 'data', 'desc_block.json'),
+                                 encoding='utf-8'))
+        _bad = []
+        for _n, _t in long_all.items():
+            _why = long_reject(_t, _places.get(_n, []),
+                               ok=_n in _ok, blocked=_n in _blk)
+            if _why:
+                _bad.append('%s（%s）' % (_n, _why))
+        if _bad:
+            problems.append('长介绍讲的是别处 %d 条（如 %s）→ python tools/clean_long_desc.py'
+                            % (len(_bad), '；'.join(_bad[:2])))
+except Exception as e:
+    problems.append('长介绍校验失败（%s）' % e)
+
 print('检查完成：%d 个问题' % len(problems))
 for p in problems:
     print('  ✗', p)

@@ -26,6 +26,8 @@
 """
 import re
 
+from common import is_disambig   # 消歧义判定只此一份，别在两处各写一套正则
+
 # 省级名（去掉「省/市/自治区/特别行政区」后缀后的写法）
 PROV_SUFFIX = re.compile(r'(省|市|自治区|特别行政区|壮族|回族|维吾尔|自治州)+$')
 
@@ -112,3 +114,49 @@ def mismatch(text, city, prov):
         if _LOCATOR.search(head[:start]):
             return '首句讲的是境外（%s），全文未提%s' % (word, city or prov)
     return None
+
+
+# ═══ 长介绍（详情页正文）═══
+# 短简介一直有上面这道闸门，长介绍却长期没人管：fetch_long_desc 只判消歧义，
+# 抓回来直接入库。于是「山东青岛的金沙滩」配上了山西朔州金沙滩镇的镇史，
+# 「浙江嘉兴的南湖」配上了唐山南湖公园的采煤沉陷区修复史，
+# 「广西梧州的中山公园」配上了北京中山公园。详情页一整块「历史沿革」
+# 都在讲别的城市，比没有长介绍糟得多 —— 但它不会触发任何报错，只能靠扫。
+#
+# 不放在 mismatch 里判的理由：长文会顺带提到很多外地地名（景区门票由北京市
+# 旅游局批、山系从湖南延伸过来、街区里有「香港街」），一律按 mismatch 判会
+# 误杀一大片。所以单独一层，另外配 data/long_ok.json 人工白名单。
+
+# 站点/列表模板页：抓下来的是「百度百科是一部内容开放…」这类站点自述，
+# 或者「本表收录世界各国的总统府」这类索引页，整段不含任何景点信息。
+TEMPLATE_RE = re.compile(
+    r'百度百科是一部内容开放|维基百科，自由的百科全书|本条目列出|本表收录|本列表列出')
+
+
+def long_reject(text, places, ok=False, blocked=False):
+    """长介绍能不能挂到这个景点上。返回原因；None 表示可用。
+
+    text     长介绍正文
+    places   该名字对应的 [(prov, city), ...]。重名景点（西湖 / 南湖 / 丹霞山）
+             只要有一处对得上就算可用，所以是「全部都错位」才判死。
+    ok       人工核验过的白名单条目（data/long_ok.json）
+    blocked  短简介已拉黑的景点（data/desc_block.json）：维基没有对等词条，
+             抓到的正文必然是同名的别的事物。
+    """
+    if not text:
+        return '空正文'
+    if ok:
+        return None
+    if TEMPLATE_RE.search(text[:200]):
+        return '站点介绍 / 索引页模板文字'
+    if is_disambig(text):
+        return '消歧义页'
+    if blocked:
+        return '短简介已拉黑（维基无对等词条，正文是别的事物）'
+    if not places:
+        return None
+    for prov, city in places:
+        if not mismatch(text, city, prov):
+            return None
+    prov, city = places[0]
+    return mismatch(text, city, prov)
