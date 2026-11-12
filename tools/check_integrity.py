@@ -458,6 +458,32 @@ try:
 except Exception as e:
     problems.append('长介绍校验失败（%s）' % e)
 
+# 15) 简介库：重名景点不许留裸名键，三键必须对得上真实的那一处
+#     前端的 pickSpotDesc 是 `read(key) || read(name)` —— 分城键没有就退到裸名。
+#     只要库里存在一条裸名键，没抓到本地词条的那一处就会把这唯一一条当自己的，
+#     11-04 清掉的「惠州西湖讲杭州」就是这样长回来的。工具（fill_missing_desc）
+#     以前也按裸名判断+写入，等于每次补抓都往这个坑里填土。
+try:
+    sd_keys = set(desc_db.keys())          # 上面第 11 项已经读进内存
+    sd_dup = {n for n, c in cnt.items() if c > 1}
+    sd_places = {}
+    for _s in sd_spots:
+        sd_places.setdefault(_s['name'], set()).add((_s['prov'], _s['city']))
+    sd_bare = sorted(k for k in sd_keys if '|' not in k and k in sd_dup)
+    sd_ghost = []
+    for k in sd_keys:
+        p = k.split('|')
+        if len(p) == 3 and (p[0], p[1]) not in sd_places.get(p[2], ()):
+            sd_ghost.append(k)
+    if sd_bare:
+        problems.append('简介库重名景点还留着裸名键 %d 个（如 %s）—— 前端会把它发给所有同名景点'
+                        % (len(sd_bare), '、'.join(sd_bare[:3])))
+    if sd_ghost:
+        problems.append('简介库挂着列表里没有的「省|市|名」%d 处（如 %s）'
+                        % (len(sd_ghost), '、'.join(sd_ghost[:3])))
+except Exception as e:
+    problems.append('简介库键规则校验失败（%s）' % e)
+
 print('检查完成：%d 个问题' % len(problems))
 for p in problems:
     print('  ✗', p)
