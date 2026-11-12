@@ -152,10 +152,31 @@ function check(name, ok, detail = '') {
   //   setExtraHTTPHeaders 会给**所有**请求加上 Referer，
   //   包括本地 index.html 本身 → 导航直接失败成 chrome-error://。
   await cdp.send('Fetch.enable', {
-    patterns: [{ urlPattern: '*api.map.baidu.com*', requestStage: 'Request' }],
+    patterns: [
+      { urlPattern: '*api.map.baidu.com*', requestStage: 'Request' },
+      // 长介绍分片也要过一道：默认全放行，只在「分片失败可恢复」那条用例里
+      // 掐断一次 long-db-N.js，模拟弱网下一次请求被中断。
+      { urlPattern: '*long-db-*', requestStage: 'Request' },
+    ],
   });
+  let longBlockIdx = null;   // 要掐断的分片号（掐一次后自动清空）
+  let longBlockHits = 0;
   cdp.onFetch = async (params) => {
     try {
+      const url = params.request.url || '';
+      const lm = url.match(/long-db-(\d+)\.js/);
+      if (lm) {
+        if (longBlockIdx !== null && Number(lm[1]) === longBlockIdx) {
+          longBlockIdx = null;   // 只掐这一次，后面要能恢复
+          longBlockHits++;
+          await cdp.send('Fetch.failRequest', {
+            requestId: params.requestId, errorReason: 'ConnectionReset',
+          });
+          return;
+        }
+        await cdp.send('Fetch.continueRequest', { requestId: params.requestId });
+        return;
+      }
       await cdp.send('Fetch.continueRequest', {
         requestId: params.requestId,
         headers: Object.entries({
@@ -1016,6 +1037,36 @@ function check(name, ok, detail = '') {
   check('同名景点里对上的那处历史沿革还在（杭州西湖）',
     hzxh2.txt.length > 40 && hzxh2.txt.includes('杭州'),
     hzxh2.txt.slice(0, 30) || '(被清空了)');
+
+  // 9h) 分片没下下来，不能把整片景点永久判死
+  //     长介绍库按景点名首字分成 8 片，打开景点时才 import 对应那片。以前失败分支
+  //     会把**空对象**缓存进 longChunkCache：弱网下只要有一次分片请求被中断，
+  //     这一片约 300 个景点在本次会话里就再也看不到历史沿革，只有刷新才恢复
+  //     （本套件"杭州西湖的历史沿革被清空了"偶发失败就是这么来的）。
+  //     现在失败不入缓存，这次先当没有正文，下次打开同片景点会重新请求。
+  await cdp.navigate(BASE);
+  await sleep(3000);
+  longBlockHits = 0;
+  longBlockIdx = 7;                       // 第 8 片：西湖、西柏坡都在这一片
+  await openSpotByHash('浙江', '杭州', '西湖');
+  await sleep(1500);
+  const blockedHist = await cdp.eval(`(() => {
+    const box = document.getElementById('intro-history');
+    return !!box && !box.hidden;
+  })()`);
+  check('分片加载失败时历史沿革只是不显示（页面不报错）',
+    longBlockHits === 1 && blockedHist === false,
+    '注入失败 ' + longBlockHits + ' 次，历史沿革块可见=' + blockedHist);
+
+  const retry = await openSpotByHash('河北', '石家庄', '西柏坡', 2);
+  const recovered = await waitFor(async () => {
+    const t = await cdp.eval(
+      "((document.getElementById('hist-text') || {}).textContent || '')");
+    return t.length > 40 ? t : 0;
+  }, 8000);
+  check('分片失败后打开同片景点能自动重试（不用刷新）',
+    !!recovered && retry.name === '西柏坡',
+    recovered ? recovered.slice(0, 26) : '(仍然为空，分片被永久判死了)');
 
   // 10) 欢迎页（首次访客）不做主页才用得上的下载
   //     原先是无条件 renderNav()：新访客还停在「怎么称呼你」那一屏，

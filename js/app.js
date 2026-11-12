@@ -883,7 +883,14 @@ function loadLongChunk(idx) {
   if (longChunkCache.has(idx)) return longChunkCache.get(idx);
   const p = import('./long-db-' + idx + '.js')
     .then(m => m['LONG_DESC_DB_' + idx] || {})
-    .catch(() => ({}));
+    .catch(() => {
+      // 分片没下下来（弱网、切换网络、请求被中断）时**不能把空对象留在缓存里**：
+      // 缓存的是一整个分片约 300 个景点，一旦留成 {}，本次会话里这一片的历史沿革
+      // 就再也出不来，只有刷新页面才恢复。删掉缓存，这次先按"没有正文"处理，
+      // 下次打开同片的景点会重新请求。
+      longChunkCache.delete(idx);
+      return {};
+    });
   longChunkCache.set(idx, p);
   return p;
 }
