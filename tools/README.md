@@ -23,7 +23,7 @@ tools/
 ├── fetch_images.py        抓照片（主图 / 补充图组）→ data/img_db.json
 ├── fetch_baike_api.py     ★ 主通道：百科 openapi 摘要 + 360 图搜照片（无需浏览器）
 ├── download_baike_img.py  下载图片到 img/baike/ 并压到 800px（同源托管）
-├── merge_baike.py         把百科图文并入 img_db / desc_db / long_db
+├── merge_baike.py         把百科图文并入 img_db / desc_db / long_db（--names 只并指定景点）
 ├── baidu_retry.mjs        百科 HTML 通道低频重试（自动拉起/关闭无头浏览器）
 ├── fetch_baike.mjs        百科 HTML 通道（需无头浏览器，被风控时不可用）
 ├── build_covers.py        生成省市卡片封面库 → js/cover-db.js（34 省地标 + 354 城实景）
@@ -41,7 +41,7 @@ tools/
 ├── fetch_coords.py       抓景点坐标 → js/coords-db.js（维基 + Wikidata + Photon，无需密钥）
 ├── resolve_disambig.py   消歧义词条重定向（「盘山可以指：…」→ 正确条目）
 ├── check_integrity.py    静态集成检查（DOM id / import 路径 / 导出名 / 数据闸门）
-└── e2e_check.mjs         端到端测试（CDP 直连浏览器，102 项交互断言）
+└── e2e_check.mjs         端到端测试（CDP 直连浏览器，106 项交互断言）
 
 data/                     原始缓存（断点续跑用，可直接提交进仓库）
 ├── spots_uniq.json        1891 个去重景点索引
@@ -50,14 +50,15 @@ data/                     原始缓存（断点续跑用，可直接提交进仓
 ├── region_db.json         省市简介原始数据
 ├── coords.json            景点坐标原始数据（重名景点按「省|市|名」分键）
 ├── coords_tried.json      查过但确实没有坐标的键（下轮不再重复请求）
-└── img_db.json            图片原始数据（含补充图组）
+├── img_db.json            图片原始数据（含补充图组）
+└── spot_city_owners.json  景点归属裁定表（一处景观只挂一座城市，check #17 校验）
 ```
 
 ## 提交前自检
 
 ```bash
 python tools/check_integrity.py    # 0 个问题才提交
-node tools/e2e_check.mjs           # 102/102 才提交（需先起服务与浏览器调试端口）
+node tools/e2e_check.mjs           # 106/106 才提交（需先起服务与浏览器调试端口）
 ```
 它会检查：JS 里引用的每个 `$('#id')` 在 index.html 里是否存在、
 每条 `import` 路径是否有对应文件、每个具名导入在目标文件里是否真的被导出
@@ -384,3 +385,42 @@ await send('Network.clearBrowserCache');   // 关键
 
 > 踩坑：改键之前先看 `long_db.json` 里已有的键。已经是分城键的条目要原样保留，
 > 迁移脚本重跑不能把它们再拆一次；`--dry-run` 的「键数 → 键数」就是判据。
+
+### 景点归属：一处景观只挂一座城市（11-13）
+
+目录里的景点是手写的，同一处景观很容易被顺手抄到相邻的**旅游集散城市**：
+
+| 错挂位置 | 实际所在地 | 为什么会抄错 |
+|---|---|---|
+| 广东 清远 丹霞山 | 韶关 仁化 | 两城都宣传「丹霞」，世界遗产在仁化 |
+| 宁夏 银川 沙湖 | 石嘴山 平罗 | 简介里写着「银川南门汽车站有专线车」——是交通，不是位置 |
+| 海南 三亚 呀诺达 | 保亭 三道镇 | 从三亚出发半小时，旅行社都按三亚卖 |
+| 新疆 伊犁 赛里木湖 | 博州 博乐 | 湖紧邻伊犁霍城，环伊犁线路把它串进去 |
+| 黑龙江 齐齐哈尔 嫩江湾 | 吉林 白城（大安） | 嫩江流经齐齐哈尔，景区在大安 |
+| 内蒙古 呼和浩特 大昭寺 | 拉萨（呼市那座叫**大召寺**） | 「召」被写成「昭」，与拉萨同名 |
+
+列表页完全看不出来（卡片只显示名字），点进详情才发现正文写着「位于石嘴山市平罗县」。
+这类错误没有自动判据（同名的确可能是同名异地），所以**人工裁定结果落表**：
+`data/spot_city_owners.json` 记 `景点名 → 允许的「省|市」`，`check_integrity.py` 第 17 项
+拿 `data/spots_uniq.json` 反查，多挂一座城市就报错；`unit_test.mjs` 用同一份表再守一遍。
+泛名（凤凰山 / 莲花山 / 南湖 / 方特）本来就是同名异地，不要写进表里。
+
+改完列表还要顺手做三件事，否则内容库会留下幽灵键或反过来丢内容：
+
+1. `node tools/build-spot-index.mjs` 重建索引；
+2. 删掉错挂城市的 `省|市|名` 键（desc / long / img / coords 四个库都要看）；
+3. 名字从「跨市重名」变成「全国唯一」时，`省|市|名` 键要归一到裸名——
+   前端 `spotDescKey` 永远返回 `省|市|名`，靠 `pickSpotDesc` 回退裸名才读得到；
+   库里若只剩分城键，那一处就静默没有简介了。
+
+补内容用定向模式，不要整库重跑（几千条的取源会被再刷一遍，diff 全是噪声）：
+
+```bash
+python tools/fetch_baike_api.py --all --names 飞来峡,大召寺
+python tools/download_baike_img.py            # 只下还没有本地文件的
+python tools/merge_baike.py --names 飞来峡,大召寺
+python tools/export_db.py
+python tools/fetch_descriptions.py --export-only
+python tools/fetch_long_desc.py --export-only
+node tools/build_home_stats.mjs
+```

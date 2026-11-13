@@ -293,7 +293,10 @@ def main():
     ap.add_argument('--conc', type=int, default=4)
     ap.add_argument('--gap', type=float, default=0.25)
     ap.add_argument('--quiet', action='store_true')
+    ap.add_argument('--names', default='',
+                    help='只抓这几处（逗号分隔的景点名）——改了几条数据时用，别整库重跑')
     args = ap.parse_args()
+    only = {x.strip() for x in args.names.split(',') if x.strip()}
 
     spots = load_json(os.path.join(DATA, 'spots_uniq.json'), [])
     db = load_json(OUT, {})
@@ -310,6 +313,8 @@ def main():
         return not v.get('ok') or not (s['name'] in local_img or v.get('imgs'))
 
     todo = [s for s in spots if (not args.missing) or needs(s)]
+    if only:
+        todo = [s for s in todo if s['name'] in only]
     if args.limit:
         todo = todo[:args.limit]
 

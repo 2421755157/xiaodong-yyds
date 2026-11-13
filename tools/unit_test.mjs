@@ -433,13 +433,58 @@ await test('坐标库: 每条都是 [经度, 纬度, 来源]', async () => {
   assert.deepEqual(bad, [], '结构不对的条目：' + bad.slice(0, 5).join('、'));
 });
 
-await test('简介库: 找不到本地词条时宁可没有，也不套外地那条', async () => {
+await test('简介库: 呼和浩特的寺院拿的是大召寺的词条，不是拉萨大昭寺', async () => {
   const { SPOT_DESC_DB } = await import('../js/spot-desc-db.js');
-  // 呼和浩特的这处寺庙没有对应词条，回退手写的一句话，
-  // 既不能有分城条目，也不能留着拉萨那座大昭寺的裸名条目。
-  assert.equal(SPOT_DESC_DB[spotDescKey('内蒙古', '呼和浩特', '大昭寺')], undefined, '不应有分城简介');
-  assert.equal(SPOT_DESC_DB['大昭寺'], undefined, '裸名条目必须清掉，否则会串到呼和浩特');
+  // 11-04 起这里一直只有手写的一句话，就是为了不把拉萨的正文挂上来。
+  // 11-13 查明呼和浩特那座寺院本名「大召寺」（无量寺），「大昭寺」是拉萨的，
+  // 于是改名重抓：现在它该有自己的正文，且正文里不能出现拉萨/八廓街。
+  const db = SPOT_DESC_DB;
+  const hh = db['大召寺'] || db[spotDescKey('内蒙古', '呼和浩特', '大召寺')] || '';
+  assert.ok(hh, '呼和浩特大召寺应有自己的简介');
+  assert.ok(hh.indexOf('拉萨') < 0 && hh.indexOf('八廓街') < 0, '大召寺的简介写成拉萨那座了：' + hh.slice(0, 30));
+  assert.ok(hh.indexOf('呼和浩特') >= 0, '简介应提到呼和浩特：' + hh.slice(0, 30));
+  // 拉萨那座仍归拉萨，且没有被呼和浩特带跑
+  const ls = db['大昭寺'] || db[spotDescKey('西藏', '拉萨', '大昭寺')] || '';
+  assert.ok(ls.indexOf('拉萨') >= 0, '拉萨大昭寺的简介丢了：' + ls.slice(0, 30));
 });
+
+// 景点归属：目录里的景点是手写的，同一处景观很容易被顺手抄到相邻的旅游集散城市。
+// 这类错误在列表页完全看不出来（卡片只显示名字），点进详情才发现简介写着「位于石嘴山市平罗县」。
+// 裁定结果在 data/spot_city_owners.json，check_integrity 第 17 项用同一份表。
+await test('景点列表: 一处景观只挂在它的行政归属城市', () => {
+  const owners = JSON.parse(readFileSync(
+    new URL('../data/spot_city_owners.json', import.meta.url), 'utf-8')).owners;
+  const at = {};
+  for (const p of PROVINCES) {
+    for (const c of p.cities) {
+      for (const s of c.spots) (at[s.n] || (at[s.n] = [])).push(p.n + '|' + c.n);
+    }
+  }
+  const bad = [];
+  for (const [name, v] of Object.entries(owners)) {
+    const have = (at[name] || []).slice().sort().join('、');
+    const want = v.cities.slice().sort().join('、');
+    if (have !== want) bad.push(name + '：应在 ' + want + '，实际 ' + (have || '（列表里没有）'));
+  }
+  assert.deepEqual(bad, [], '挂错城市：' + bad.join('；'));
+});
+
+// 换掉错挂景点时补上的那几处，必须有真实文案与本地照片——
+// 否则「修正归属」只是把一条错卡换成一条空卡，卡片只剩手写的 6 个字。
+await test('景点列表: 换上的景点都有本地简介与封面', async () => {
+  const { SPOT_DESC_DB } = await import('../js/spot-desc-db.js');
+  const { SPOT_IMAGES_DB } = await import('../js/spot-images-db.js');
+  const need = ['飞来峡', '卜奎清真寺', '鸣翠湖', '大小洞天', '特克斯八卦城', '大召寺'];
+  const bad = [];
+  for (const n of need) {
+    const d = SPOT_DESC_DB[n] || '';
+    const img = SPOT_IMAGES_DB[n];
+    if (d.length < 40) bad.push(n + '：简介 ' + d.length + ' 字');
+    if (!img || !String(img[0]).startsWith('img/baike/')) bad.push(n + '：封面 ' + (img ? img[0] : '无'));
+  }
+  assert.deepEqual(bad, [], bad.join('；'));
+});
+
 
 // 长介绍库：详情页「历史沿革」正文。
 // 抓取管线原先只判「是不是消歧义页」，同名异地 / 同名异物的整段正文照样入库，

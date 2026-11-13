@@ -28,6 +28,11 @@ from common import DATA, load_json, save_json
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DRY = '--dry-run' in sys.argv
+# --names a,b：只把这几个景点的素材并进库。改了 js/data 里几条景点时用，
+# 否则整库重合并会把几千条历史截图/文案的取源再刷一遍，diff 里全是噪声。
+ONLY = set()
+if '--names' in sys.argv:
+    ONLY = {x.strip() for x in sys.argv[sys.argv.index('--names') + 1].split(',') if x.strip()}
 TOTAL = len(load_json(os.path.join(DATA, 'spots_uniq.json'), []) or []) or 1892
 
 # 本地已下载的图片（img/baike/*.jpg）优先：同源托管，不受防盗链影响，
@@ -62,6 +67,9 @@ for name, v in html_ok.items():
 
 print('合并源：openapi %d 条可用，HTML %d 条可用，合计 %d 个景点有素材'
       % (len([1 for v in api.values() if v.get('ok')]), len(html_ok), len(entries)))
+if ONLY:
+    entries = {k: v for k, v in entries.items() if k in ONLY}
+    print('只合并 --names 指定的 %d 个：%s' % (len(entries), '、'.join(sorted(entries)) or '（都没素材）'))
 
 img_db = load_json(os.path.join(DATA, 'img_db.json'), {})
 desc_db = load_json(os.path.join(DATA, 'desc_db.json'), {})

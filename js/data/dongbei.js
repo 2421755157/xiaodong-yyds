@@ -214,7 +214,7 @@ export const DONGBEI = [
           { n: '明月岛', t: 'island', d: '江心岛。' },
           { n: '龙沙公园', t: 'park', d: '东北最早公园。' },
           { n: '大乘寺', t: 'temple', d: '天台宗。' },
-          { n: '嫩江湾', t: 'water', d: '江畔。' },
+          { n: '卜奎清真寺', t: 'temple', d: '康熙年间，宫殿式。' },
         ] },
       { n: '牡丹江', desc: '雪乡，镜泊湖。', cover: 'linear-gradient(135deg,#3a4a5a,#6a7a8a)',
         spots: [

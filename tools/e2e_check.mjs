@@ -966,10 +966,45 @@ function check(name, ok, detail = '') {
     tl.name === '凤凰山' && (tl.cover === '' || tl.cover.indexOf('data:') === 0),
     '封面=' + (tl.cover ? tl.cover.slice(0, 30) : '(空)'));
 
-  const hh = await openSpotByHash('内蒙古', '呼和浩特', '大昭寺');
-  check('无本地词条时不套外地简介（呼和浩特）',
-    hh.name === '大昭寺' && hh.desc.indexOf('拉萨') < 0 && hh.desc.indexOf('八廓街') < 0,
+  // 呼和浩特那座寺院本名「大召寺」（无量寺），「大昭寺」是拉萨的。
+  // 以前列表里写成大昭寺，与拉萨同名，抓回来只能是拉萨的正文，所以一直只显示手写的一句话。
+  // 11-13 改名重抓后它有了自己的词条，但仍不能带上拉萨的任何字眼。
+  const hh = await openSpotByHash('内蒙古', '呼和浩特', '大召寺');
+  check('呼和浩特的寺院用大召寺的词条，不套拉萨大昭寺',
+    hh.name === '大召寺' && hh.desc.indexOf('呼和浩特') >= 0
+      && hh.desc.indexOf('拉萨') < 0 && hh.desc.indexOf('八廓街') < 0,
     hh.desc.slice(0, 34) || '(无简介)');
+
+  // 9g) 景点不能挂错城市
+  //     同一处景观被顺手抄到相邻的旅游集散城市时，列表页完全看不出来（卡片只显示名字），
+  //     点进详情才发现正文写着「位于石嘴山市平罗县」。11-13 逐条核过这五处：
+  //     清远丹霞山（韶关）、银川沙湖（石嘴山）、三亚呀诺达（保亭）、
+  //     伊犁赛里木湖（博州）、齐齐哈尔嫩江湾（白城）。
+  //     这里同时守两头：错的那座城市不再列出，对的那座必须还在。
+  const citySpotNames = async (prov, city) => {
+    await cdp.navigate(BASE.replace(/\/$/, '') + '#/' + encodeURIComponent(prov) + '/'
+      + encodeURIComponent(city));
+    const raw = await waitFor(async () => {
+      const j = await cdp.eval(`(() => {
+        const hs = [...document.querySelectorAll('#spot-grid .spot-card .spot-body h4')];
+        if (!hs.length) return '';
+        return JSON.stringify(hs.map(h => h.textContent.trim()));
+      })()`);
+      return j || 0;
+    }, 15000);
+    return raw ? JSON.parse(raw) : [];
+  };
+  const qy = await citySpotNames('广东', '清远');
+  check('挂错城市的景点已挪走（清远不再有丹霞山）',
+    qy.length > 0 && qy.indexOf('丹霞山') < 0 && qy.indexOf('飞来峡') >= 0,
+    '清远：' + (qy.join('、') || '(空)'));
+  const sg = await citySpotNames('广东', '韶关');
+  check('丹霞山仍在韶关', sg.indexOf('丹霞山') >= 0, '韶关：' + (sg.join('、') || '(空)'));
+  const yc = await citySpotNames('宁夏', '银川');
+  check('沙湖不再挂在银川（换成银川自己的湿地公园）',
+    yc.indexOf('沙湖') < 0 && yc.indexOf('鸣翠湖') >= 0, '银川：' + (yc.join('、') || '(空)'));
+  const szs = await citySpotNames('宁夏', '石嘴山');
+  check('沙湖仍在石嘴山', szs.indexOf('沙湖') >= 0, '石嘴山：' + (szs.join('、') || '(空)'));
 
   // 泛名景点：维基词条标题与景点名一模一样，正文讲的却是别处的同一名字
   // （长岛→纽约长岛、铁塔→济宁崇觉寺铁塔）。这类错位标题层面看不出来，

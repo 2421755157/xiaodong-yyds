@@ -407,6 +407,10 @@ export const SPOT_IMAGES_DB = {
   "img/baike/edadc78294f0a12e.jpg",
   3
  ],
+ "丹霞山": [
+  "img/baike/182bef7c3baebf29.jpg",
+  3
+ ],
  "丹顶鹤保护区": [
   "img/baike/87e283fea5019b3e.jpg",
   3
@@ -981,10 +985,6 @@ export const SPOT_IMAGES_DB = {
  ],
  "内乡县衙": [
   "img/baike/66da0088d10539d5.jpg",
-  3
- ],
- "内蒙古|呼和浩特|大昭寺": [
-  "img/baike/54965228fd77303b.jpg",
   3
  ],
  "内蒙古|巴彦淖尔|镜湖": [
@@ -1635,10 +1635,6 @@ export const SPOT_IMAGES_DB = {
   "img/baike/2b5fadf0ad3a0684.jpg",
   3
  ],
- "吉林|白城|嫩江湾": [
-  "img/baike/2feaaf393b579da7.jpg",
-  3
- ],
  "吉林|辽源|龙首山": [
   "img/baike/8bae75c8445f0775.jpg",
   3
@@ -1665,6 +1661,10 @@ export const SPOT_IMAGES_DB = {
  ],
  "吴桥杂技大世界": [
   "img/baike/fc4917dbdcb786a4.jpg",
+  3
+ ],
+ "呀诺达": [
+  "img/baike/8e5dcb6020d1e5c4.jpg",
   3
  ],
  "周口店遗址": [
@@ -2091,6 +2091,10 @@ export const SPOT_IMAGES_DB = {
   "img/baike/e2f67989096edb47.jpg",
   3
  ],
+ "大昭寺": [
+  "img/baike/a4d193d2c24abbb0.jpg",
+  3
+ ],
  "大梅沙": [
   "img/baike/0b1b072adb99c03b.jpg",
   3
@@ -2411,6 +2415,10 @@ export const SPOT_IMAGES_DB = {
   "img/baike/203651e23594c0b7.jpg",
   3
  ],
+ "嫩江湾": [
+  "img/baike/2feaaf393b579da7.jpg",
+  3
+ ],
  "孔府": [
   "img/baike/fb0e232c06f5f598.jpg",
   3
@@ -2457,14 +2465,6 @@ export const SPOT_IMAGES_DB = {
  ],
  "孽龙洞": [
   "img/baike/f1efe6b5fc9b81ea.jpg",
-  3
- ],
- "宁夏|石嘴山|沙湖": [
-  "img/baike/fa085c9dbfc5b7ad.jpg",
-  3
- ],
- "宁夏|银川|沙湖": [
-  "img/baike/fff99bf3a310c861.jpg",
   3
  ],
  "安化茶马古道": [
@@ -2959,10 +2959,6 @@ export const SPOT_IMAGES_DB = {
   "img/baike/291ad3af2250727b.jpg",
   3
  ],
- "广东|韶关|丹霞山": [
-  "img/baike/182bef7c3baebf29.jpg",
-  3
- ],
  "广东会馆": [
   "img/baike/5b93a9c46996876d.jpg",
   3
@@ -3405,14 +3401,6 @@ export const SPOT_IMAGES_DB = {
  ],
  "新疆|乌鲁木齐|南山": [
   "img/baike/bccd380636ecb19a.jpg",
-  3
- ],
- "新疆|伊犁|赛里木湖": [
-  "img/baike/965d5553153fcd30.jpg",
-  3
- ],
- "新疆|博州|赛里木湖": [
-  "img/baike/b86ba3534d8f2782.jpg",
   3
  ],
  "新疆|和田|塔克拉玛干": [
@@ -4163,6 +4151,10 @@ export const SPOT_IMAGES_DB = {
   "img/baike/197cf5e3f8c20fb4.jpg",
   3
  ],
+ "沙湖": [
+  "img/baike/fa085c9dbfc5b7ad.jpg",
+  3
+ ],
  "沙漠公园": [
   "img/baike/36850ac38e931c84.jpg",
   3
@@ -4373,14 +4365,6 @@ export const SPOT_IMAGES_DB = {
  ],
  "海伦": [
   "img/baike/b740d630c1577164.jpg",
-  3
- ],
- "海南|三亚|呀诺达": [
-  "img/baike/a7edbcaffb1a68b7.jpg",
-  3
- ],
- "海南|保亭|呀诺达": [
-  "img/baike/8e5dcb6020d1e5c4.jpg",
   3
  ],
  "海州露天矿": [
@@ -6099,10 +6083,6 @@ export const SPOT_IMAGES_DB = {
   "img/baike/d8311ed2dd47fd58.jpg",
   3
  ],
- "西藏|拉萨|大昭寺": [
-  "img/baike/a4d193d2c24abbb0.jpg",
-  3
- ],
  "西街": [
   "img/baike/202aa6cc28235b04.jpg",
   3
@@ -6221,6 +6201,10 @@ export const SPOT_IMAGES_DB = {
  ],
  "赛汗塔拉": [
   "img/baike/8dcab4f2dfa15014.jpg",
+  3
+ ],
+ "赛里木湖": [
+  "img/baike/b86ba3534d8f2782.jpg",
   3
  ],
  "赞丹寺": [
@@ -7521,6 +7505,30 @@ export const SPOT_IMAGES_DB = {
  ],
  "龟峰山": [
   "img/baike/6901edc9ca2b0881.jpg",
+  3
+ ],
+ "大召寺": [
+  "img/baike/f540dd1169363fe3.jpg",
+  3
+ ],
+ "卜奎清真寺": [
+  "img/baike/b2f127c1b050e232.jpg",
+  3
+ ],
+ "飞来峡": [
+  "img/baike/70482fcb6821d572.jpg",
+  3
+ ],
+ "大小洞天": [
+  "img/baike/7b43829d25e660d7.jpg",
+  3
+ ],
+ "鸣翠湖": [
+  "img/baike/b71681df483cf712.jpg",
+  3
+ ],
+ "特克斯八卦城": [
+  "img/baike/e56e77b44b6cb916.jpg",
   3
  ]
 };

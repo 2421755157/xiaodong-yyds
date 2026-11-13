@@ -291,7 +291,7 @@ export const XIBEI = [
           { n: '西夏王陵', t: 'ruin', d: '东方金字塔。' },
           { n: '镇北堡影视城', t: 'town', d: '大话西游。' },
           { n: '贺兰山岩画', t: 'ruin', d: '远古。' },
-          { n: '沙湖', t: 'water', d: '沙水相依。' },
+          { n: '鸣翠湖', t: 'water', d: '国家湿地公园。' },
           { n: '水洞沟', t: 'ruin', d: '旧石器。' },
         ] },
       { n: '中卫', desc: '沙坡头，黄河。', cover: 'linear-gradient(135deg,#6a5a3a,#9a8a5a)',
@@ -374,7 +374,7 @@ export const XIBEI = [
         spots: [
           { n: '那拉提', t: 'mountain', d: '空中草原。' },
           { n: '喀拉峻', t: 'mountain', d: '人体草原。' },
-          { n: '赛里木湖', t: 'water', d: '大西洋最后一滴泪。' },
+          { n: '特克斯八卦城', t: 'town', d: '八卦布局，无红绿灯。' },
           { n: '果子沟', t: 'mountain', d: '大桥。' },
           { n: '霍尔果斯', t: 'town', d: '口岸。' },
         ] },

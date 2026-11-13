@@ -189,7 +189,7 @@ export const HUABEI = [
     cities: [
       { n: '呼和浩特', desc: '青城，昭君墓。', cover: 'linear-gradient(135deg,#3a5a3a,#6a8a5a)',
         spots: [
-          { n: '大昭寺', t: 'temple', d: '呼和浩特最早黄教寺庙。' },
+          { n: '大召寺', t: 'temple', d: '呼和浩特最早黄教寺庙。' },
           { n: '昭君墓', t: 'ruin', d: '青冢，王昭君墓。' },
           { n: '内蒙古博物院', t: 'park', d: '草原文明全景。' },
           { n: '哈素海', t: 'water', d: '塞外西湖。' },

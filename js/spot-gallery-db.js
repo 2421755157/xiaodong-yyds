@@ -367,6 +367,10 @@ export const SPOT_GALLERY_DB = {
   "https://p3.ssl.qhimgs1.com/dr/720_720_/t0403890022ba0c1793.jpg",
   "https://p3.ssl.qhimgs1.com/dr/720_720_/t044229e860a980ac09.jpg"
  ],
+ "丹霞山": [
+  "https://p0.ssl.qhimgs1.com/dr/720_720_/t01514b188f44d2f500.jpg",
+  "https://p1.ssl.qhimgs1.com/dr/720_720_/t01f2e0900990033e4b.jpg"
+ ],
  "丹顶鹤保护区": [
   "https://p2.ssl.qhimgs1.com/dr/720_720_/t018ebe9b8cbca58478.jpg"
  ],
@@ -892,10 +896,6 @@ export const SPOT_GALLERY_DB = {
  "内乡县衙": [
   "https://p0.ssl.qhimgs1.com/dr/720_720_/t045edf63d11e71ff7a.jpg",
   "https://p0.ssl.qhimgs1.com/dr/720_720_/t01db2f62644c234590.jpg"
- ],
- "内蒙古|呼和浩特|大昭寺": [
-  "https://p5.ssl.qhimgs1.com/dr/720_720_/t04e9632a42913a62b5.jpg",
-  "https://p0.ssl.qhimgs1.com/dr/720_720_/t04b4376f2ffa44d460.jpg"
  ],
  "内蒙古|巴彦淖尔|镜湖": [
   "https://p1.ssl.qhimgs1.com/dr/720_720_/t013223b8014fac2a11.jpg"
@@ -1481,9 +1481,6 @@ export const SPOT_GALLERY_DB = {
   "https://p0.ssl.qhimgs1.com/dr/720_720_/t01cce35ce0c7d876de.jpg",
   "https://p3.ssl.qhimgs1.com/dr/720_720_/t01630c686c6a06ea79.jpg"
  ],
- "吉林|白城|嫩江湾": [
-  "https://p1.ssl.qhimgs1.com/dr/720_720_/t01b2e10d5234fcba6b.jpg"
- ],
  "吉林|辽源|龙首山": [
   "https://p3.ssl.qhimgs1.com/dr/720_720_/t0155fad718166cb043.jpg"
  ],
@@ -1510,6 +1507,10 @@ export const SPOT_GALLERY_DB = {
  "吴桥杂技大世界": [
   "https://p1.ssl.qhimgs1.com/dr/720_720_/t04766b766f8969bd9b.jpg",
   "https://p0.ssl.qhimgs1.com/dr/720_720_/t04264366d624c9cbd4.jpg"
+ ],
+ "呀诺达": [
+  "https://p1.ssl.qhimgs1.com/dr/720_720_/t01f03aa138cde9a757.jpg",
+  "https://p3.ssl.qhimgs1.com/dr/720_720_/t01604aa7717aaed7ed.jpg"
  ],
  "周口店遗址": [
   "https://p3.ssl.qhimgs1.com/dr/720_720_/t0106305ac45fcf7943.jpg",
@@ -1895,6 +1896,10 @@ export const SPOT_GALLERY_DB = {
   "https://p3.ssl.qhimgs1.com/dr/720_720_/t012176102dbdd55733.jpg",
   "https://p0.ssl.qhimgs1.com/dr/720_720_/t046b85c54cf09a01d4.jpg"
  ],
+ "大昭寺": [
+  "https://p3.ssl.qhimgs1.com/dr/720_720_/t0489daf64bad5527d3.jpg",
+  "https://p0.ssl.qhimgs1.com/dr/720_720_/t0464e8bbda38c5c890.jpg"
+ ],
  "大梅沙": [
   "https://p5.ssl.qhimgs1.com/dr/720_720_/t01bcba0efc6ae6ecd5.bmp",
   "https://p2.ssl.qhimgs1.com/dr/720_720_/t041e942e71de262748.jpg"
@@ -2185,6 +2190,9 @@ export const SPOT_GALLERY_DB = {
   "https://p3.ssl.qhimgs1.com/dr/720_720_/t0151dccdfa3d0cfddd.jpg",
   "https://p3.ssl.qhimgs1.com/dr/720_720_/t01c4ce979996c4a0dd.jpg"
  ],
+ "嫩江湾": [
+  "https://p1.ssl.qhimgs1.com/dr/720_720_/t01b2e10d5234fcba6b.jpg"
+ ],
  "孔府": [
   "https://p5.ssl.qhimgs1.com/dr/720_720_/t01654385853df53d15.jpg",
   "https://p3.ssl.qhimgs1.com/dr/720_720_/t0431d4bc40e2690ea9.jpg"
@@ -2227,14 +2235,6 @@ export const SPOT_GALLERY_DB = {
  ],
  "孽龙洞": [
   "https://p0.ssl.qhimgs1.com/dr/720_720_/t04f05c01afe29e1250.jpg"
- ],
- "宁夏|石嘴山|沙湖": [
-  "https://p0.ssl.qhimgs1.com/dr/720_720_/t043d1b251fa693e336.jpg",
-  "https://p5.ssl.qhimgs1.com/dr/720_720_/t044473d2a43c1bfeaf.jpg"
- ],
- "宁夏|银川|沙湖": [
-  "https://p3.ssl.qhimgs1.com/dr/720_720_/t016851840ea6caaeed.jpg",
-  "https://p1.ssl.qhimgs1.com/dr/720_720_/t04fc80c8a047450c31.jpg"
  ],
  "安化茶马古道": [
   "https://p5.ssl.qhimgs1.com/dr/720_720_/t01cf5efdf621b0a25f.jpg"
@@ -2689,10 +2689,6 @@ export const SPOT_GALLERY_DB = {
   "https://p3.ssl.qhimgs1.com/dr/720_720_/t04ea5bd53854722849.jpg",
   "https://p1.ssl.qhimgs1.com/dr/720_720_/t039669975abe372d97.jpg"
  ],
- "广东|韶关|丹霞山": [
-  "https://p0.ssl.qhimgs1.com/dr/720_720_/t01514b188f44d2f500.jpg",
-  "https://p1.ssl.qhimgs1.com/dr/720_720_/t01f2e0900990033e4b.jpg"
- ],
  "广东会馆": [
   "https://p3.ssl.qhimgs1.com/dr/720_720_/t047bf89c46b34d92e3.jpg",
   "https://p1.ssl.qhimgs1.com/dr/720_720_/t048873d5b4309370d1.jpg"
@@ -3090,13 +3086,6 @@ export const SPOT_GALLERY_DB = {
  "新疆|乌鲁木齐|南山": [
   "https://p1.ssl.qhimgs1.com/dr/720_720_/t01e32945c4461cbedb.jpg",
   "https://p5.ssl.qhimgs1.com/dr/720_720_/t014139c16ebe11e64f.jpg"
- ],
- "新疆|伊犁|赛里木湖": [
-  "https://p1.ssl.qhimgs1.com/dr/720_720_/t0130620321bf6b7487.jpg",
-  "https://p2.ssl.qhimgs1.com/dr/720_720_/t044aace08bc5b876dc.jpg"
- ],
- "新疆|博州|赛里木湖": [
-  "https://p3.ssl.qhimgs1.com/dr/720_720_/t048a2a59dc47ce079d.jpg"
  ],
  "新疆|和田|塔克拉玛干": [
   "https://p0.ssl.qhimgs1.com/dr/720_720_/t01e5dac13ec323f50e.jpg"
@@ -3787,6 +3776,10 @@ export const SPOT_GALLERY_DB = {
   "https://p0.ssl.qhimgs1.com/dr/720_720_/t012781040a69fa64e4.jpg",
   "https://p0.ssl.qhimgs1.com/dr/720_720_/t01c634bf46ce9a8ce4.jpg"
  ],
+ "沙湖": [
+  "https://p0.ssl.qhimgs1.com/dr/720_720_/t043d1b251fa693e336.jpg",
+  "https://p5.ssl.qhimgs1.com/dr/720_720_/t044473d2a43c1bfeaf.jpg"
+ ],
  "沙漠公园": [
   "https://p3.ssl.qhimgs1.com/dr/720_720_/t044d8028c1869260c3.jpg"
  ],
@@ -3977,14 +3970,6 @@ export const SPOT_GALLERY_DB = {
  "海伦": [
   "https://p2.ssl.qhimgs1.com/dr/720_720_/t0116713d4da5fe1edc.jpg",
   "https://p0.ssl.qhimgs1.com/dr/720_720_/t04b2fb15ba469e1534.jpg"
- ],
- "海南|三亚|呀诺达": [
-  "https://p5.ssl.qhimgs1.com/dr/720_720_/t01c1f6b449065db9ef.jpg",
-  "https://p0.ssl.qhimgs1.com/dr/720_720_/t04abc6fa24291fb290.jpg"
- ],
- "海南|保亭|呀诺达": [
-  "https://p1.ssl.qhimgs1.com/dr/720_720_/t01f03aa138cde9a757.jpg",
-  "https://p3.ssl.qhimgs1.com/dr/720_720_/t01604aa7717aaed7ed.jpg"
  ],
  "海州露天矿": [
   "https://p1.ssl.qhimgs1.com/dr/720_720_/t04d3d6c04ff382e8d1.jpg",
@@ -5567,10 +5552,6 @@ export const SPOT_GALLERY_DB = {
  "西溪湿地": [
   "https://p2.ssl.qhimgs1.com/dr/720_720_/t013efd0a452eaf2af8.jpg"
  ],
- "西藏|拉萨|大昭寺": [
-  "https://p3.ssl.qhimgs1.com/dr/720_720_/t0489daf64bad5527d3.jpg",
-  "https://p0.ssl.qhimgs1.com/dr/720_720_/t0464e8bbda38c5c890.jpg"
- ],
  "西街": [
   "https://p5.ssl.qhimgs1.com/dr/720_720_/t015e30aa7ed65b4a1f.jpg",
   "https://p0.ssl.qhimgs1.com/dr/720_720_/t015d153a4e7d176af0.jpg"
@@ -5679,6 +5660,9 @@ export const SPOT_GALLERY_DB = {
  ],
  "赛汗塔拉": [
   "https://p2.ssl.qhimgs1.com/dr/720_720_/t01d6aa946029856842.jpg"
+ ],
+ "赛里木湖": [
+  "https://p3.ssl.qhimgs1.com/dr/720_720_/t048a2a59dc47ce079d.jpg"
  ],
  "赞丹寺": [
   "https://p1.ssl.qhimgs1.com/dr/720_720_/t01af8dfa8702760e71.jpg"
@@ -6859,5 +6843,24 @@ export const SPOT_GALLERY_DB = {
  ],
  "龟峰山": [
   "https://p3.ssl.qhimgs1.com/dr/720_720_/t013673deb476cc5589.jpg"
+ ],
+ "大召寺": [
+  "https://p1.ssl.qhimgs1.com/dr/720_720_/t048fa4c5ff596b3bb1.jpg",
+  "https://p3.ssl.qhimgs1.com/dr/720_720_/t0109470fcc612d86dd.jpg"
+ ],
+ "卜奎清真寺": [
+  "https://p2.ssl.qhimgs1.com/dr/720_720_/t01a3be6c6e4da28538.jpg"
+ ],
+ "大小洞天": [
+  "https://p2.ssl.qhimgs1.com/dr/720_720_/t01c027f96566c807f8.jpg",
+  "https://p3.ssl.qhimgs1.com/dr/720_720_/t01469d76edcd8bc033.jpg"
+ ],
+ "鸣翠湖": [
+  "https://p2.ssl.qhimgs1.com/dr/720_720_/t017361596f148b0b82.jpg",
+  "https://p5.ssl.qhimgs1.com/dr/720_720_/t0176ff32c1e8fed465.jpg"
+ ],
+ "特克斯八卦城": [
+  "https://p2.ssl.qhimgs1.com/dr/720_720_/t01277ff485f8ad7c18.jpg",
+  "https://p3.ssl.qhimgs1.com/dr/720_720_/t010c5b5435d1690fd3.jpg"
  ]
 };

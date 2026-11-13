@@ -533,6 +533,40 @@ try:
 except Exception as e:
     problems.append('简介分片校验失败（%s）' % e)
 
+# 17) 景点归属：一处景观只能挂在它的行政归属城市
+#     目录里的景点是手写的，同一处景观很容易被顺手抄到相邻的旅游集散城市：
+#     清远抄了韶关的丹霞山、银川抄了石嘴山的沙湖、三亚抄了保亭的呀诺达、
+#     伊犁抄了博州的赛里木湖、齐齐哈尔抄了白城的嫩江湾。列表页看不出来，
+#     点进详情才发现简介里写着「位于石嘴山市平罗县」——比缺一条景点难查得多。
+#     这类错只能靠人判定，所以裁定结果落在 data/spot_city_owners.json，
+#     清单里的名字每多挂一座城市就报错。泛名（凤凰山/莲花山/南湖）不在清单内。
+try:
+    _guard = json.load(io.open(os.path.join(ROOT, 'data', 'spot_city_owners.json'),
+                               encoding='utf-8'))['owners']
+    _all_spots = json.load(io.open(os.path.join(ROOT, 'data', 'spots_uniq.json'),
+                                   encoding='utf-8'))
+    _at = {}
+    for _s in _all_spots:
+        _at.setdefault(_s['name'], set()).add('%s|%s' % (_s['prov'], _s['city']))
+    _bad_own, _stale = [], []
+    for _n, _v in _guard.items():
+        _have = _at.get(_n)
+        if not _have:
+            _stale.append(_n)          # 改名/删景点后守卫还在，等于没守
+            continue
+        _want = set(_v['cities'])
+        if _have != _want:
+            _bad_own.append('%s（应只在 %s，实际 %s）'
+                            % (_n, '、'.join(sorted(_want)), '、'.join(sorted(_have))))
+    if _stale:
+        problems.append('景点归属清单里的名字在景点列表里找不到 %d 个（%s）→ 数据/改名后同步 '
+                        'data/spot_city_owners.json' % (len(_stale), '、'.join(_stale[:3])))
+    if _bad_own:
+        problems.append('景点挂错城市 %d 处（%s）→ 列表里挪走，内容库也要清掉那座城市的键'
+                        % (len(_bad_own), '；'.join(_bad_own[:3])))
+except Exception as e:
+    problems.append('景点归属校验失败（%s）' % e)
+
 print('检查完成：%d 个问题' % len(problems))
 for p in problems:
     print('  ✗', p)
