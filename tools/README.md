@@ -18,6 +18,8 @@ tools/
 ├── common.py              公共模块：代理、清洗、相关性判定、敏感词过滤
 ├── build-spot-index.mjs   从 js/china-data.js 生成景点/省市索引
 ├── fetch_descriptions.py  抓简介（景点 + 省市）→ spot-desc-db.js / region-desc-db.js
+│                          （导出后自动重跑 shard_desc.py）
+├── shard_desc.py         简介库按省切 8 片 → js/spot-desc-shard-*.js（列表/详情只下一片）
 ├── fetch_images.py        抓照片（主图 / 补充图组）→ data/img_db.json
 ├── fetch_baike_api.py     ★ 主通道：百科 openapi 摘要 + 360 图搜照片（无需浏览器）
 ├── download_baike_img.py  下载图片到 img/baike/ 并压到 800px（同源托管）
@@ -39,7 +41,7 @@ tools/
 ├── fetch_coords.py       抓景点坐标 → js/coords-db.js（维基 + Wikidata + Photon，无需密钥）
 ├── resolve_disambig.py   消歧义词条重定向（「盘山可以指：…」→ 正确条目）
 ├── check_integrity.py    静态集成检查（DOM id / import 路径 / 导出名 / 数据闸门）
-└── e2e_check.mjs         端到端测试（CDP 直连浏览器，96 项交互断言）
+└── e2e_check.mjs         端到端测试（CDP 直连浏览器，102 项交互断言）
 
 data/                     原始缓存（断点续跑用，可直接提交进仓库）
 ├── spots_uniq.json        1891 个去重景点索引
@@ -55,7 +57,7 @@ data/                     原始缓存（断点续跑用，可直接提交进仓
 
 ```bash
 python tools/check_integrity.py    # 0 个问题才提交
-node tools/e2e_check.mjs           # 96/96 才提交（需先起服务与浏览器调试端口）
+node tools/e2e_check.mjs           # 102/102 才提交（需先起服务与浏览器调试端口）
 ```
 它会检查：JS 里引用的每个 `$('#id')` 在 index.html 里是否存在、
 每条 `import` 路径是否有对应文件、每个具名导入在目标文件里是否真的被导出

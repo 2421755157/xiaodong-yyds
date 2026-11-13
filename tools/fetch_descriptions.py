@@ -485,3 +485,9 @@ if __name__ == '__main__':
         'export const REGION_DESC_DB = '))
     print('导出：景点 %d 条，省市 %d 条，用时 %.0fs'
           % (len(spot_db), len(region_db), time.time() - t0))
+    # 前端读的是按省切好的 8 个分片（js/spot-desc-shard-*.js），不是整库：
+    # 这里顺手重算一遍，否则页面会继续显示上一版的简介。
+    # （忘了跑也不会悄悄错 —— check_integrity 第 16 项会硬失败）
+    import subprocess
+    subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                                'shard_desc.py')], check=False)

@@ -18,6 +18,8 @@ import { getSpotImages, getSpotCover, galleryReady, ensureGallery,
 import { streetViewFor, hasStreetView, POIID_DB } from './streetview.js';
 import { staticMapUrl, hasStaticMap, MAP_VIEWS, mapViewByKey, baiduMapLink } from './staticmap.js';
 import { lazyDB } from './lazy-db.js';
+import { loadProvDesc, loadAllDesc, descGet, descHas, descTried,
+         descAllLoaded } from './desc-shard.js';
 import { REGION_DESC_DB } from './region-desc-db.js';
 import { PROV_COVER, CITY_COVER } from './cover-db.js';
 import { HOME_STATS } from './home-stats.js';
@@ -32,14 +34,13 @@ let THREE = null, EffectComposer = null, RenderPass = null, UnrealBloomPass = nu
 let buildScene = null, Roamer = null;
 
 // ═══ 静态数据库（统一懒加载，见 lazy-db.js）═══
-// 简介库 100KB / 坐标库 39KB / 全景库 26KB，都不阻塞首屏
-const DESC_DB = lazyDB(() => import('./spot-desc-db.js'), m => m.SPOT_DESC_DB);
+// 坐标库 39KB / 全景库 26KB 不阻塞首屏。
+// 简介库不走这里：它 656KB，按省切成 8 片（见 desc-shard.js），
+// 列表与详情只取当前省那 82KB，只有搜索的正文匹配才拉整库。
 const COORD_DB = lazyDB(() => import('./coords-db.js'), m => m.COORD_DB);
 const PANORAMA_DB = lazyDB(() => import('./panorama-db.js'), m => m.PANORAMA_DB);
 // 拼音索引（66KB，只在输入英文时加载），支持 gugong / bdlg 这类输入
 const PINYIN_DB = lazyDB(() => import('./pinyin-db.js'), m => m.PINYIN_DB);
-
-let descDBRepainted = false;
 
 // ═══ 景点真实简介（维基词条首段静态库）优先，手写 d 字段作为回退 ═══
 // 同名景点（西湖/象鼻山/世界之窗）在库里是「省|市|名」分开存的，
@@ -52,10 +53,10 @@ for (const p of PROVINCES) {
   }
 }
 function realDesc(spot) {
-  return pickSpotDesc(DESC_DB.get, SPOT_KEY.get(spot), spot.n, spot.d);
+  return pickSpotDesc(descGet, SPOT_KEY.get(spot), spot.n, spot.d);
 }
 function hasRealDesc(spot) {
-  return !!pickSpotDesc(DESC_DB.get, SPOT_KEY.get(spot), spot.n, '');
+  return !!pickSpotDesc(descGet, SPOT_KEY.get(spot), spot.n, '');
 }
 // 坐标：分城键优先，再退到裸名。没坐标的景点详情页不显示小地图。
 function coordOf(spot) {
@@ -363,19 +364,22 @@ async function renderNav() {
     });
   }
   syncHash();
-  // 简介库异步就绪后，用真实简介重绘一次卡片（只重绘一次，避免循环）
+  // 简介分片异步就绪后，用真实简介重绘一次卡片。
   //
-  // 只在景点层拉：卡片摘要 shortDesc() 取的是景点简介，省/市两级的文案来自
-  // 省市简介库（provDesc / cityDesc），跟这份 590KB 的库毫无关系。
-  // 之前这里不看层级，进站（还在省份网格）就把它拉了下来，到货后再把同样的
-  // 34 张省卡原样重绘一遍 —— 一次 590KB 的空转，还跟省卡封面抢带宽。
-  // 搜索和详情弹窗各自会 load()，不靠这里兜底。
-  if (nav.level === 'spot' && !DESC_DB.ready() && !descDBRepainted) {
-    DESC_DB.load().then(() => {
-      if (descDBRepainted) return;
-      descDBRepainted = true;
-      // 加载期间用户可能已经点回省市层：这时网格里没有景点卡，重绘纯属空转
-      if (nav.level !== 'spot') return;
+  // 只在景点层拉，而且只拉「当前这一省」那一片（约 82KB）：
+  //   · 省/市两级的文案来自省市简介库（provDesc / cityDesc），用不上景点简介
+  //   · 景点层一屏十几张卡片，全部是同一个省的景点，整库那 656KB 里 90% 用不到
+  //   · 以前不区分层级，进站（还在省份网格）就把整库拉下来，到货后再把同样的
+  //     34 张省卡原样重绘一遍 —— 一次 590KB 的空转，还跟省卡封面抢带宽
+  // 搜索和详情弹窗各自负责加载：搜索拉整库，详情只拉该景点所在的省。
+  if (nav.level === 'spot' && !descTried(nav.prov.n)) {
+    const want = nav.prov.n;
+    loadProvDesc(want).then(() => {
+      // 加载期间用户可能已经点回省市层，或换到了别的省：这时重绘纯属空转，
+      // 换了省则由那一次渲染自己发起对应的分片请求
+      if (nav.level !== 'spot' || nav.prov.n !== want) return;
+      // 分片没下来（弱网）就保持手写文案，不做无意义重绘
+      if (!descHas(want)) return;
       renderNav();
     });
   }
@@ -485,10 +489,11 @@ function doSearch() {
     setSearchStatus('');
     return;
   }
-  // 简介库是异步懒加载的：库没就绪时 DESC_DB.get() 恒为 undefined，
-  // 搜简介全文会全部落空（只剩名称命中）。这里先确保库就绪再搜。
-  if (!DESC_DB.ready()) {
-    DESC_DB.load().then(() => {
+  // 简介是分片加载的：只到了当前省那一片时，别的省照样读不到，
+  // 正文匹配会漏。搜索是唯一需要整库的场景（用户明确要搜，值得这 656KB），
+  // 这里先把 8 片都拉齐再搜。
+  if (!descAllLoaded()) {
+    loadAllDesc().then(() => {
       // 加载期间用户可能已经改了关键词或清空输入，过期就不重绘
       if ($('#search-input').value.trim() === q) doSearch();
     });
@@ -1007,10 +1012,10 @@ function bindCoverPicker(prov, city, spot) {
 
 // ═════════ 景点详情弹窗 ═════════
 async function openSpot(prov, city, spot) {
-  // 只等简介库（详情页要立刻显示真实简介）；
-  // 图集库 239KB 放后台加载 —— 之前 await 它会让整个弹窗卡住
-  // 近 1 秒（用户点景点的第一眼延迟）。
-  await DESC_DB.load();
+  // 只等「该景点所在省」那一片简介（约 82KB），不再等整库 656KB ——
+  // 这一句 await 直接压在用户点下去到弹窗出现之间，是详情页最贵的一段等待。
+  // 图集库 239KB 仍放后台加载 —— await 它会让弹窗再卡近 1 秒。
+  await loadProvDesc(prov.n);
   ensureGallery();
   const isPro = PRO_SCENES[city.n + '|' + spot.n];
   const typeInfo = SPOT_TYPE[spot.t] || SPOT_TYPE.park;

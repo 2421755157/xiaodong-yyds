@@ -220,7 +220,7 @@ except Exception as e:
 #    其中有 4 个在 3D 懒加载块里，是纯负担。这里守一道，避免以后又长回来。
 #    只检查 `export const/function/class` 声明式导出；`export { x } from './y'`
 #    这类再导出要看调用链，误报多，不纳入。
-DEAD_EXPORT_SKIP = ('long-db-',)          # 数据块：导出名是按 'LONG_DESC_DB_' + i 拼出来的
+DEAD_EXPORT_SKIP = ('long-db-', 'spot-desc-shard-')   # 数据块：导出名是按 '<前缀>_' + i 拼出来的
 try:
     consumers = {}
     for root, _dirs, files in os.walk(JS):
@@ -483,6 +483,55 @@ try:
                         % (len(sd_ghost), '、'.join(sd_ghost[:3])))
 except Exception as e:
     problems.append('简介库键规则校验失败（%s）' % e)
+
+# 16) 简介分片：派生文件必须和源库逐条一致
+#     前端列表层与详情页只下「当前省」那一片（约 82KB），搜索才拉整库。
+#     分片是 js/spot-desc-db.js 的派生缓存：抓取管线更新了源库却忘了重新分片，
+#     页面就会继续显示旧简介，而且只在部分省份看得出来 —— 最难查的一类问题。
+#     这条校验把「忘了跑工具」变成硬失败。分片规则见 tools/shard_desc.py。
+try:
+    sys.path.insert(0, os.path.join(ROOT, 'tools'))
+    import shard_desc                                   # noqa: E402
+    sd_files, sd_buckets, sd_map, sd_sizes, sd_total = shard_desc.plan()
+    sd_drift = []
+    for _p, _text in sd_files.items():
+        _cur = io.open(_p, encoding='utf-8').read() if os.path.exists(_p) else ''
+        if _cur != _text:
+            sd_drift.append(os.path.basename(_p))
+    if sd_drift:
+        problems.append('简介分片与源库不一致 %d 个（%s）→ python tools/shard_desc.py'
+                        % (len(sd_drift), '、'.join(sd_drift[:3])))
+    _spots = json.load(io.open(os.path.join(ROOT, 'data', 'spots_uniq.json'),
+                              encoding='utf-8'))
+    _cnt = {}
+    for _s in _spots:
+        _cnt[_s['name']] = _cnt.get(_s['name'], 0) + 1
+    _prov_by_name = {_s['name']: _s['prov'] for _s in _spots if _cnt[_s['name']] == 1}
+    # 前端只信 spot-desc-shard-map.js 这张表：表里把某省指到别的片，
+    # 那一省就会「请求成功但一条简介都没有」，页面看着正常、内容静默缺失。
+    # 所以拿**盘上的映射表**回头核每个分片里的每条键，而不是核刚算出来的那份。
+    _map_src = io.open(os.path.join(JS, 'spot-desc-shard-map.js'), encoding='utf-8').read()
+    _map_at = _map_src.index('DESC_SHARD_OF')
+    _disk_map = json.loads(_map_src[_map_src.index('{', _map_at):_map_src.rindex('}') + 1])
+    _wrong = []
+    for _i, _b in enumerate(sd_buckets):
+        for _k in _b:
+            _prov = _k.split('|')[0] if '|' in _k else _prov_by_name.get(_k)
+            if _disk_map.get(_prov) != _i:
+                _wrong.append('%s（%s→片%s，实际在片%d）'
+                              % (_k, _prov, _disk_map.get(_prov), _i))
+    if _wrong:
+        problems.append('简介分片与映射表对不上 %d 条（如 %s）→ python tools/shard_desc.py'
+                        % (len(_wrong), '；'.join(_wrong[:2])))
+    _empty = [i for i, b in enumerate(sd_buckets) if not b]
+    if _empty:
+        problems.append('简介分片有空片 %s（前端会白拉一趟）' % _empty)
+    _lost = sd_total - sum(len(b) for b in sd_buckets)
+    if _lost:
+        problems.append('简介分片丢了 %d 条（源库 %d 条，分片合计 %d 条）'
+                        % (_lost, sd_total, sum(len(b) for b in sd_buckets)))
+except Exception as e:
+    problems.append('简介分片校验失败（%s）' % e)
 
 print('检查完成：%d 个问题' % len(problems))
 for p in problems:

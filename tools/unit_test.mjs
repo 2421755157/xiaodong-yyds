@@ -11,6 +11,7 @@
 // 需要本地 HTTP 服务（E2E 同款）跑 DOM 相关的部分；没有则跳过那几项。
 
 import assert from 'node:assert';
+import { readFileSync } from 'node:fs';
 import { lazyDB } from '../js/lazy-db.js';
 import * as sm from '../js/staticmap.js';
 import * as sv from '../js/streetview.js';
@@ -554,6 +555,70 @@ await test('取图: 没抓到本地照的分城键回落到占位图，不借外
   const u = si.getSpotCover('凤凰山', '安徽', 'mountain',
     spotDescKey('安徽', '铜陵', '凤凰山'));
   assert.ok(u.startsWith('data:'), '缺图应回落到主题占位图，实际：' + u.slice(0, 60));
+});
+
+// ─────────────────────────── 简介分片 ───────────────────────────
+// 简介库按省切成 8 片：列表与详情只下当前省那一片（约 82KB），搜索才拉整库。
+// 分片是派生物，最容易出的错是「源库更新了但分片没重跑」和「省份归错片」——
+// 前者由 check_integrity 第 16 项挡，后者只能在这里逐条比对。
+await test('简介分片: 每个省都查得到片号，且片内条目都属于本省', async () => {
+  const { DESC_SHARD_OF, DESC_SHARD_COUNT } = await import('../js/spot-desc-shard-map.js');
+  const spots = JSON.parse(readFileSync(new URL('../data/spots_uniq.json', import.meta.url), 'utf8'));
+  const provByName = new Map();
+  for (const s of spots) provByName.set(s.name, s.prov);
+
+  const missing = PROVINCES.map(p => p.n).filter(n => !Number.isInteger(DESC_SHARD_OF[n]));
+  assert.deepEqual(missing, [], '这些省没有分片号，前端会拿不到简介：' + missing.join('、'));
+
+  const wrong = [];
+  for (let i = 0; i < DESC_SHARD_COUNT; i++) {
+    const mod = await import('../js/spot-desc-shard-' + i + '.js');
+    const db = mod['DESC_SHARD_' + i];
+    assert.ok(db && Object.keys(db).length > 0, '分片 ' + i + ' 不该是空的');
+    for (const k of Object.keys(db)) {
+      const prov = k.includes('|') ? k.split('|')[0] : provByName.get(k);
+      if (DESC_SHARD_OF[prov] !== i) wrong.push(k + '（' + prov + '）');
+    }
+  }
+  assert.deepEqual(wrong.slice(0, 5), [], '这些条目装错了片：' + wrong.slice(0, 5).join('、'));
+});
+
+await test('简介分片: 8 片合起来与源库逐条一致（不多不少不改字）', async () => {
+  const { DESC_SHARD_COUNT } = await import('../js/spot-desc-shard-map.js');
+  const { SPOT_DESC_DB } = await import('../js/spot-desc-db.js');
+  const merged = {};
+  for (let i = 0; i < DESC_SHARD_COUNT; i++) {
+    const mod = await import('../js/spot-desc-shard-' + i + '.js');
+    for (const [k, v] of Object.entries(mod['DESC_SHARD_' + i])) {
+      assert.equal(merged[k], undefined, '键 ' + k + ' 出现在多个分片里');
+      merged[k] = v;
+    }
+  }
+  const lost = Object.keys(SPOT_DESC_DB).filter(k => merged[k] === undefined);
+  const extra = Object.keys(merged).filter(k => SPOT_DESC_DB[k] === undefined);
+  const diff = Object.keys(merged).filter(k => SPOT_DESC_DB[k] !== undefined
+    && SPOT_DESC_DB[k] !== merged[k]);
+  assert.deepEqual(lost.slice(0, 3), [], '分片缺 ' + lost.length + ' 条');
+  assert.deepEqual(extra.slice(0, 3), [], '分片多出 ' + extra.length + ' 条');
+  assert.deepEqual(diff.slice(0, 3), [], '分片正文与源库不一致 ' + diff.length + ' 条');
+});
+
+await test('简介分片: 只下本省那一片就能读到该省景点简介', async () => {
+  const ds = await import('../js/desc-shard.js');
+  await ds.loadProvDesc('浙江');
+  const key = spotDescKey('浙江', '杭州', '西湖');      // 重名景点用分城键
+  const txt = ds.descGet(key);
+  assert.ok(txt && txt.includes('西湖'), '杭州西湖的简介应已可用，实际：' + String(txt).slice(0, 20));
+  assert.equal(ds.descHas('浙江'), true, '浙江分片应标记为已到货');
+  // 没请求过的省不该被顺手拉下来（否则分片就白分了）
+  assert.equal(ds.descHas('广东'), false, '广东分片不该被这次加载带下来');
+});
+
+await test('简介分片: 省份不认识时立即返回空，不发起请求', async () => {
+  const ds = await import('../js/desc-shard.js');
+  const r = await ds.loadProvDesc('不存在的省');
+  assert.deepEqual(Object.keys(r), [], '未知省份应返回空对象');
+  assert.equal(ds.descTried('不存在的省'), false, '未知省份不该记为「已请求」');
 });
 
 // ─────────────────────────── 汇总 ───────────────────────────// 注意：不要写 '\n通过 %d，失败 %d' % (...) ——

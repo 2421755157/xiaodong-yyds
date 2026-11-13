@@ -324,8 +324,8 @@ function check(name, ok, detail = '') {
   // 3a) 城市卡的文案来自省市简介库，仍然用不上 590KB 的景点简介库。
   //     它以前在进站那一刻就被拉下来，到货后把同样的省卡原样重绘一遍。
   const descDbAtCity = await cdp.eval(
-    "performance.getEntriesByType('resource').some(r => /spot-desc-db\\.js/.test(r.name))");
-  check('城市层不拉景点简介库（省下的 590KB）', descDbAtCity === false, '已拉=' + descDbAtCity);
+    "performance.getEntriesByType('resource').some(r => /spot-desc-(db|shard-\\d+)\\.js/.test(r.name))");
+  check('城市层不拉景点简介（分片也不拉）', descDbAtCity === false, '已拉=' + descDbAtCity);
 
   // 4) 城市卡 → 景点列表
   await cdp.eval("document.querySelector('.spot-card').click()");
@@ -333,25 +333,37 @@ function check(name, ok, detail = '') {
   const spotCards = await cdp.eval("document.querySelectorAll('.spot-card').length");
   check('点击市卡进入景点列表', spotCards > 0, spotCards + ' 张');
 
-  // 4a) 到了景点层才该拉简介库，且卡片摘要要真的换成词条原文。
-  //     判据用长度：手写兜底简介全部 ≤29 字（1891 处里只有 1 处到 30 字），
+  // 4a) 到了景点层才该拉简介，而且只拉「当前这一省」那一片（约 82KB），
+  //     不是整库 656KB。整库只有搜索的正文匹配才用得上。
+  //     卡片摘要判据用长度：手写兜底简介全部 ≤29 字（1891 处里只有 1 处到 30 字），
   //     词条首段截到 44 字，所以 ≥30 字基本只可能来自库里。
+  const descShape = `(() => {
+    const rs = performance.getEntriesByType('resource').map(r => r.name);
+    return JSON.stringify({
+      shards: rs.filter(u => /spot-desc-shard-\\d+\\.js/.test(u)).length,
+      full: rs.some(u => /spot-desc-db\\.js/.test(u)),
+    });
+  })()`;
   const descAtSpotRaw = await waitFor(async () => {
-    const loaded = await cdp.eval(
-      "performance.getEntriesByType('resource').some(r => /spot-desc-db\\.js/.test(r.name))");
-    if (!loaded) return null;
+    const o = JSON.parse(await cdp.eval(descShape));
+    if (!o.shards) return null;
     const r = await cdp.eval(`(() => {
       const ds = [...document.querySelectorAll('#spot-grid .spot-card p')].map(p => p.textContent.trim());
       return JSON.stringify({ n: ds.length, ge30: ds.filter(d => d.length >= 30).length,
         first: ds[0] || '' });
     })()`);
-    const o = JSON.parse(r);
-    return o.n > 0 && o.ge30 >= Math.ceil(o.n * 0.6) ? r : null;
+    const d = JSON.parse(r);
+    return d.n > 0 && d.ge30 >= Math.ceil(d.n * 0.6) ? r : null;
   }, 15000);
   const dsp = descAtSpotRaw ? JSON.parse(descAtSpotRaw) : { n: 0, ge30: 0, first: '' };
-  check('景点层才拉简介库，卡片摘要换成词条原文',
+  check('景点层才拉简介，卡片摘要换成词条原文',
     !!descAtSpotRaw && dsp.ge30 >= Math.ceil(dsp.n * 0.6),
     `${dsp.ge30}/${dsp.n} 条为词条原文，首条：${dsp.first.slice(0, 20)}`);
+
+  const shardNow = JSON.parse(await cdp.eval(descShape));
+  check('景点层只拉当前省那一片简介（不下整库）',
+    shardNow.shards === 1 && shardNow.full === false,
+    `分片请求 ${shardNow.shards} 个，整库已拉=${shardNow.full}`);
 
   const imgDbLoaded = await cdp.eval(
     "performance.getEntriesByType('resource').some(r => /spot-images-db\\.js/.test(r.name))");
@@ -383,6 +395,21 @@ function check(name, ok, detail = '') {
   await waitFor(async () => (await cdp.eval("!document.getElementById('intro-modal').hidden")) === true, 15000);
   const modalOpen = await cdp.eval("!document.getElementById('intro-modal').hidden");
   check('点击景点打开详情弹窗', modalOpen === true, 'hidden=' + (await cdp.eval("document.getElementById('intro-modal').hidden")));
+
+  // 5b) 详情页的简介来自「该省那一片」，不该为了一个景点把 656KB 整库拖下来
+  //     （这一句 await 就压在用户点下去到弹窗出现之间）
+  const detailShape = await cdp.eval(`(() => {
+    const rs = performance.getEntriesByType('resource').map(r => r.name);
+    return JSON.stringify({
+      len: (document.getElementById('intro-desc').textContent || '').trim().length,
+      shards: rs.filter(u => /spot-desc-shard-\\d+\\.js/.test(u)).length,
+      full: rs.some(u => /spot-desc-db\\.js/.test(u)),
+    });
+  })()`);
+  const dshape = JSON.parse(detailShape);
+  check('详情页简介来自本省分片（没为一条简介下整库）',
+    dshape.len > 20 && dshape.full === false && dshape.shards === 1,
+    `简介 ${dshape.len} 字，分片 ${dshape.shards} 个，整库已拉=${dshape.full}`);
 
   // 5a) 对话框语义 + 焦点进入
   //     没有这些，读屏软件把弹窗当普通 div，Tab 也还在背后的卡片上走
@@ -588,9 +615,11 @@ function check(name, ok, detail = '') {
 
   // 7) 搜索
   await cdp.eval("const i=document.getElementById('search-input'); i.value='太湖'; i.dispatchEvent(new Event('input',{bubbles:true}))");
-  // 搜索是防抖 + 异步查库，固定睡 900ms 会随机器负载偶发落空 → 改成轮询
+  // 搜索是防抖 + 异步查库，固定睡 900ms 会随机器负载偶发落空 → 改成轮询。
+  // 正文全文匹配要等 8 片简介全部到位（约 656KB），线上慢网可能比本地久，
+  // 给到 6 秒上限。
   let sres = 0;
-  for (let i = 0; i < 14; i++) {
+  for (let i = 0; i < 24; i++) {
     sres = await cdp.eval("document.querySelectorAll('#search-results .sr-item').length");
     if (sres > 0) break;
     await sleep(250);
@@ -1080,7 +1109,7 @@ function check(name, ok, detail = '') {
     const rs = performance.getEntriesByType('resource');
     const has = re => rs.some(r => re.test(r.name));
     const heavy = [];
-    if (has(/spot-desc-db\\.js/)) heavy.push('简介库');
+    if (has(/spot-desc-db\\.js/) || has(/spot-desc-shard-\\d+\\.js/)) heavy.push('简介库');
     if (has(/spot-images-db\\.js/)) heavy.push('景点图库');
     if (has(/three\\.module\\.js/)) heavy.push('three');
     if (has(/\\/js\\/scenes\\.js/)) heavy.push('scenes.js');
