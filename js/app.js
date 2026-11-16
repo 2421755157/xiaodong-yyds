@@ -1784,11 +1784,14 @@ function bind() {
 
   const tryEnter = () => {
     const name = $('#gate-name').value.trim() || '无名氏';
+    // 进来时带的链接要先记下来：renderHome 会把层级重置、地址改写成 #/
+    const wish = hashParts();
     store.setUser(name);
     renderHome();
-    // 分享链接（#/省/市/景点）进来的人还没进过站，renderHome 会把层级重置掉，
-    // 这里再按地址定位一次，免得"点开链接却回到全国列表"
-    if (applyLocation()) {
+    // 分享链接（#/省、#/省/市、#/省/市/景点）进来的人还没进过站，
+    // renderHome 会把层级重置掉，这里再按刚才记下的地址定位一次，
+    // 免得"点开链接却回到全国列表"
+    if (applyLocation(wish.length ? wish : undefined)) {
       renderNav();
       openPendingSpot();
     }
@@ -2096,9 +2099,10 @@ function hashParts() {
     .map(x => { try { return decodeURIComponent(x); } catch (e) { return x; } });
 }
 
-function applyLocation() {
+// parts 可显式传入：启动阶段 renderHome() 会把地址改写成 #/，
+// 调用方必须在它之前先把链接取下来，事后用这份快照定位。
+function applyLocation(parts = hashParts()) {
   // 1) hash 优先（分享链接可直达）
-  const parts = hashParts();
   if (parts.length) {
     const p = PROVINCES.find(x => x.n === parts[0]);
     if (p) {
@@ -2210,8 +2214,11 @@ function openDeepSpot(d) {
 }
 
 const deep = parseDeepSpot();
+// 省/市两级链接（#/广东、#/广东/清远）也要落地。必须在 renderHome() 之前取：
+// 它会把层级重置成省份级并通过 syncHash 把地址改写成 #/，事后再读就读不到了。
+const startParts = hashParts();
 const returning = !!store.data.user;
-applyLocation();
+applyLocation(startParts);
 // 首次访客会先看到欢迎页（只问一句「怎么称呼你」），这里不能 renderNav：
 // 省份网格一渲染就会连锁拉简介库 615KB / 省卡封面图，而这些在欢迎页上
 // 一个像素都用不到。真正进站时 renderHome() 内部会自己渲染一次。
@@ -2220,6 +2227,12 @@ if (returning || deep) renderNav();
 if (returning) {
   renderHome();                     // 内部会把 nav 重置到省份层级
   if (deep) openDeepSpot(deep);     // 带着分享链接进来时，别被默认定位覆盖
+  else if (startParts.length && applyLocation(startParts)) {
+    // 只有三段式景点链接曾经能直达；「#/广东/清远」这种省/市链接，以及
+    // 停在市层按刷新、从收藏夹进来，都会被重置回全国列表，地址还被改成 #/。
+    // 这里补上另外两级（applyLocation 会顺带重写地址，renderNav 里再 syncHash）。
+    renderNav();
+  }
   show('#home');
 } else if (deep) {
   // 分享链接最常见的场景就是发给没来过的人。原来这类访客会先撞上

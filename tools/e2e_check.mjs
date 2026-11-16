@@ -1435,6 +1435,50 @@ function check(name, ok, detail = '') {
       && deepBefore.parts === 2 && deepAfter.stillDirect === false,
     `标记=${deepBefore.marker} 层级=${deepBefore.parts} 后退后仍在直达页=${deepAfter.stillDirect}`);
 
+  // 14f/g/h) 省/市两级链接的「落地」。
+  //      以前只有三段式景点链接有落地逻辑：收到「#/广东/清远」的人（以及在市层按
+  //      刷新、从收藏夹进来的老用户）会停在省份网格，地址还被改写成 #/。
+  //      带 query 强制整页加载，走的正是刷新/收藏/分享的真实路径。
+  const enc = encodeURIComponent;
+  await cdp.navigate(BASE + '?jump=1#/' + enc('广东') + '/' + enc('清远'));
+  await sleep(3000);
+  const jumpCity = JSON.parse(await cdp.eval(`JSON.stringify({
+    hash: decodeURIComponent(location.hash),
+    cards: document.querySelectorAll('#spot-grid .spot-card').length,
+    first: (document.querySelector('#spot-grid .spot-body h4') || {}).textContent || '',
+  })`));
+  check('市层级链接/刷新落在该市（#/广东/清远）',
+    jumpCity.hash === '#/广东/清远' && jumpCity.cards === 5 && jumpCity.first === '英西峰林',
+    `地址=${jumpCity.hash} 卡片=${jumpCity.cards} 首项=${jumpCity.first}`);
+
+  await cdp.navigate(BASE + '?jump=2#/' + enc('广东'));
+  await sleep(2800);
+  const jumpProv = JSON.parse(await cdp.eval(`JSON.stringify({
+    hash: decodeURIComponent(location.hash),
+    cards: document.querySelectorAll('#spot-grid .spot-card').length,
+  })`));
+  check('省层级链接/刷新落在该省城市列表（#/广东）',
+    jumpProv.hash === '#/广东' && jumpProv.cards === 21,
+    `地址=${jumpProv.hash} 卡片=${jumpProv.cards}`);
+
+  // 14h) 没进过站的访客带两级链接：过欢迎页后仍落在该市（走 tryEnter 那条路）
+  await cdp.eval("localStorage.removeItem('other-side-wuxi-v1')");
+  await cdp.navigate(BASE + '?jump=3#/' + enc('广东') + '/' + enc('清远'));
+  await sleep(2500);
+  const gateShown = await cdp.eval("!document.getElementById('gate').hidden");
+  await cdp.eval(`document.getElementById('gate-name').value = '新客';
+    document.getElementById('gate-enter').click();`);
+  await sleep(2800);
+  const afterGate = JSON.parse(await cdp.eval(`JSON.stringify({
+    hash: decodeURIComponent(location.hash),
+    cards: document.querySelectorAll('#spot-grid .spot-card').length,
+    first: (document.querySelector('#spot-grid .spot-body h4') || {}).textContent || '',
+  })`));
+  check('新访客带省市链接，过欢迎页后仍落在该市',
+    gateShown === true && afterGate.hash === '#/广东/清远'
+      && afterGate.cards === 5 && afterGate.first === '英西峰林',
+    `欢迎页=${gateShown} 地址=${afterGate.hash} 卡片=${afterGate.cards} 首项=${afterGate.first}`);
+
   console.log('\n通过 ' + results.filter(r => r.ok).length + '/' + results.length);
   const failed = results.filter(r => !r.ok);
   if (failed.length) {
