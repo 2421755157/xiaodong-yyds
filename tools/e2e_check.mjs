@@ -125,14 +125,26 @@ class CDP {
 }
 
 const results = [];
+let CDP_REF = null;              // 失败时顺手打出这一段里的页面异常，省得再写探针复现
+let logCursor = 0;
 function check(name, ok, detail = '') {
   results.push({ name, ok, detail });
   console.log((ok ? 'OK   ' : 'FAIL ') + name + (detail ? '  → ' + detail : ''));
+  if (!ok && CDP_REF) {
+    const errs = CDP_REF.logs.slice(logCursor).filter(l => l.type === 'exception' || l.type === 'error');
+    if (errs.length) {
+      console.log('     [页面异常] ' + errs.slice(-3).map(e => e.text.slice(0, 160)).join(' | '));
+    } else {
+      console.log('     [页面无异常] 本轮日志共 ' + CDP_REF.logs.length + ' 条');
+    }
+  }
+  logCursor = CDP_REF ? CDP_REF.logs.length : 0;
 }
 
 (async () => {
   const target = await getTarget();
   const cdp = await CDP.connect(target.webSocketDebuggerUrl);
+  CDP_REF = cdp;
   await cdp.send('Runtime.enable');
   await cdp.send('Log.enable');
   await cdp.send('Page.enable');
@@ -1298,6 +1310,130 @@ function check(name, ok, detail = '') {
   check('运行中切到减少动效立即冻结', q1.vis && q1.dev === q2.dev,
     q1.dev === q2.dev ? '已停于 ' + q1.dev : '仍在变化 ' + q1.dev + ' → ' + q2.dev);
   await cdp.send('Emulation.setEmulatedMedia', { features: [] });
+
+  // 14) 浏览器后退：三层导航必须逐层退回去，而不是一按就离开站点。
+  //     以前每层跳转都走 replaceState，历史里只有进站那一条 —— 手机上误触一次
+  //     后退整站就没了，回来还得从首页重新点。这里守住「下钻写历史 + 后退按层退」。
+  await cdp.eval(`localStorage.setItem('other-side-wuxi-v1', JSON.stringify({
+    user:{name:'测试员',createdAt:Date.now()}, visits:{}, footprints:[], covers:{},
+    fortunes:{}, lastTheme:'auto'
+  })); localStorage.removeItem('nr_last_nav');`);
+  await cdp.navigate(BASE);
+  await sleep(4000);
+  const introOpen = () => cdp.eval(
+    "(() => { const m = document.getElementById('intro-modal'); return !!m && !m.hidden; })()");
+  const h0 = await cdp.eval('history.length');
+  await cdp.eval("document.querySelectorAll('#spot-grid .spot-card')[0].click()");
+  await waitDepth(1);
+  const h1 = await cdp.eval('history.length');
+  await cdp.eval("document.querySelectorAll('#spot-grid .spot-card')[0].click()");
+  await waitDepth(2);
+  const h2 = await cdp.eval('history.length');
+  await cdp.eval("document.querySelectorAll('#spot-grid .spot-card')[0].click()");
+  const opened = await waitFor(async () => (await introOpen()) === true, 10000);
+  const h3 = await cdp.eval('history.length');
+  check('逐层下钻会写入历史（后退有层级可退）',
+    opened === true && h1 > h0 && h2 > h1 && h3 > h2,
+    `详情已开=${opened}，历史 ${h0} → ${h1} → ${h2} → ${h3}`);
+
+  // 14b) 后退一次 = 关掉详情，退回本市景点列表（不离开站点、列表不重绘成空）
+  await cdp.eval('history.back()');
+  const backOne = await waitFor(async () => {
+    const raw = await cdp.eval(`(() => {
+      const m = document.getElementById('intro-modal');
+      const parts = decodeURIComponent(location.hash).replace(/^#\\/?/, '').split('/').filter(Boolean);
+      return JSON.stringify({
+        closed: !!m && m.hidden,
+        parts: parts.length,
+        cards: document.querySelectorAll('#spot-grid .spot-card').length,
+      });
+    })()`);
+    const o = JSON.parse(raw);
+    return o.closed && o.parts === 2 && o.cards > 0 ? raw : 0;
+  }, 10000);
+  const bo = backOne ? JSON.parse(backOne) : {};
+  check('后退一次退回景点列表（详情关闭，不离开站点）',
+    bo.closed === true && bo.parts === 2 && bo.cards > 0,
+    `关闭=${bo.closed} 层级=${bo.parts} 卡片=${bo.cards}`);
+
+  // 14b2) 前进键也要能回到刚才那处详情。
+  //      只做后退会把历史做成单向的：后退一次后再也回不到刚才看的景点。
+  //      这条同时守住「popstate 与 hashchange 去重」没把前进事件误吞。
+  await cdp.eval('history.forward()');
+  const fwd = await waitFor(async () => {
+    const raw = await cdp.eval(`(() => {
+      const m = document.getElementById('intro-modal');
+      return JSON.stringify({
+        open: !!m && !m.hidden,
+        parts: decodeURIComponent(location.hash).replace(/^#\\/?/, '').split('/').filter(Boolean).length,
+      });
+    })()`);
+    const o = JSON.parse(raw);
+    return o.open && o.parts === 3 ? raw : 0;
+  }, 10000);
+  const fo = fwd ? JSON.parse(fwd) : {};
+  check('前进键回到刚才那处详情', fo.open === true && fo.parts === 3,
+    `打开=${fo.open} 层级=${fo.parts}`);
+  // 收回列表，后面的用例继续从列表层往下走
+  await cdp.eval("document.getElementById('intro-x').click()");
+  await waitFor(async () => (await introOpen()) === false, 8000);
+  await sleep(400);
+
+  // 14c) 关详情要连历史一起退：否则每看一处都留一条已关闭的地址，
+  //      之后得按两次后退才退得出一层。（history.length 后退时不会变小，
+  //      所以要靠下面「再后退一层是否直接到城市列表」来验证真的退了。）
+  await cdp.eval("document.querySelectorAll('#spot-grid .spot-card')[1].click()");
+  await waitFor(async () => (await introOpen()) === true, 10000);
+  await cdp.eval("document.getElementById('intro-x').click()");
+  await waitFor(async () => (await introOpen()) === false, 8000);
+  await sleep(600);
+  const closedState = await cdp.eval(`JSON.stringify({
+    modal: !document.getElementById('intro-modal').hidden,
+    parts: decodeURIComponent(location.hash).replace(/^#\\/?/, '').split('/').filter(Boolean).length,
+  })`);
+  const cs = JSON.parse(closedState);
+  check('关详情后地址收回城市层', cs.modal === false && cs.parts === 2,
+    `弹窗=${cs.modal} 层级=${cs.parts}`);
+
+  // 14d) 再后退一层 = 回到省级城市列表
+  await cdp.eval('history.back()');
+  const backTwo = await waitFor(async () => {
+    const raw = await cdp.eval(`(() => {
+      const parts = decodeURIComponent(location.hash).replace(/^#\\/?/, '').split('/').filter(Boolean);
+      return JSON.stringify({ parts: parts.length, cards: document.querySelectorAll('#spot-grid .spot-card').length });
+    })()`);
+    const o = JSON.parse(raw);
+    return o.parts === 1 && o.cards > 0 ? raw : 0;
+  }, 10000);
+  const bt = backTwo ? JSON.parse(backTwo) : {};
+  check('再后退一层回到城市列表', bt.parts === 1 && bt.cards > 0,
+    `层级=${bt.parts} 卡片=${bt.cards}`);
+
+  // 14e) 分享链接直达（不是站内点进来的）：关详情不能在历史里凭空压一层。
+  //      若是压进去的，手机上「后退」只会把弹窗关了又弹回来，像退不出去。
+  //      判据不用 history.length —— 后退过一次之后再导航会把前进记录截断，
+  //      长度不可比；这里直接看「关掉后按一次后退，应当离开这个直达地址」。
+  //      带 query 是为了强制整页加载，别退化成同文档 hash 跳转。
+  await cdp.navigate(BASE + '?direct=1#/' + encodeURIComponent('江苏') + '/'
+    + encodeURIComponent('苏州') + '/' + encodeURIComponent('拙政园'));
+  await sleep(3000);
+  const deepOpened = await waitFor(async () => (await introOpen()) === true, 15000);
+  await cdp.eval("document.getElementById('intro-x').click()");
+  const deepClosed = await waitFor(async () => (await introOpen()) === false, 8000);
+  await sleep(600);
+  const deepBefore = JSON.parse(await cdp.eval(`JSON.stringify({
+    marker: !!(history.state && history.state.spot),
+    parts: decodeURIComponent(location.hash).replace(/^#\\/?/, '').split('/').filter(Boolean).length,
+  })`));
+  await cdp.eval('history.back()');
+  await sleep(2200);
+  const deepAfter = JSON.parse(await cdp.eval(`JSON.stringify({
+    stillDirect: location.search.includes('direct=1'),
+  })`));
+  check('直达链接关详情后一次后退即离开该页',
+    deepOpened === true && deepClosed === true && deepBefore.marker === false
+      && deepBefore.parts === 2 && deepAfter.stillDirect === false,
+    `标记=${deepBefore.marker} 层级=${deepBefore.parts} 后退后仍在直达页=${deepAfter.stillDirect}`);
 
   console.log('\n通过 ' + results.filter(r => r.ok).length + '/' + results.length);
   const failed = results.filter(r => !r.ok);

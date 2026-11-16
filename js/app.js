@@ -124,6 +124,13 @@ const MOOD_COLOR = ['', 0x7a9ac9, 0x8fb8c9, 0xb8b8a8, 0xd3b98a, 0xf0c86a];
 let nav = { level: 'prov' };
 // 分享链接里带了景点（#/省/市/景点）时先记下来，等对应层级渲染完再弹详情
 let pendingSpot = null;
+// 下一次写地址栏要不要新增一条历史。用户主动跳转置 true，程序化回写保持 false。
+let hashPush = false;
+// 最近一次「已处理/已写入」的地址：后退时 popstate 与 hashchange 会各来一次，
+// 地址没变就说明是同一动作的第二个事件。
+let lastLocHash = null;
+// 路由换层时顺手关详情会置位：dialog:close 看到它就别再回写地址/退历史。
+let routeClosing = false;
 
 function toast(msg, ms = 2600) {
   const t = $('#toast');
@@ -319,7 +326,8 @@ async function renderNav() {
         label: p.n + '，省会 ' + p.cap + '，进入城市列表',
         cover: true,
         priority: i < 4,
-        onOpen: () => { nav = { level: 'city', prov: p }; renderNav(); },
+        // 下钻新增一条历史；面包屑上行/关详情走替换，历史里只留「进来过哪几层」
+        onOpen: () => { hashPush = true; nav = { level: 'city', prov: p }; renderNav(); },
       });
     });
   } else if (nav.level === 'city') {
@@ -334,7 +342,7 @@ async function renderNav() {
         label: c.n + '，' + c.spots.length + ' 处风景，查看景点',
         cover: true,
         priority: i < 4,
-        onOpen: () => { nav = { level: 'spot', prov: nav.prov, city: c }; renderNav(); },
+        onOpen: () => { hashPush = true; nav = { level: 'spot', prov: nav.prov, city: c }; renderNav(); },
       });
     });
   } else {
@@ -350,7 +358,7 @@ async function renderNav() {
           '<span class="spot-enter">详情 →</span></div></div>',
         label: s.n + '，查看详情',
         priority: i < 4,
-        onOpen: () => openSpot(nav.prov, nav.city, s),
+        onOpen: () => openSpot(nav.prov, nav.city, s, true),
       });
       const img = card.querySelector('img');
       markLoading(img);
@@ -475,9 +483,10 @@ function openSearchHit(r) {
   box.classList.remove('show');
   $('#search-input').value = '';
   setSearchStatus('');
-  if (r.type === 'prov') { nav = { level: 'city', prov: r.prov }; renderNav(); }
-  else if (r.type === 'city') { nav = { level: 'spot', prov: r.prov, city: r.city }; renderNav(); }
-  else { openSpot(r.prov, r.city, r.spot); }
+  // 搜索结果同样是用户主动进入，各层都要留一条历史
+  if (r.type === 'prov') { hashPush = true; nav = { level: 'city', prov: r.prov }; renderNav(); }
+  else if (r.type === 'city') { hashPush = true; nav = { level: 'spot', prov: r.prov, city: r.city }; renderNav(); }
+  else { openSpot(r.prov, r.city, r.spot, true); }
 }
 
 function doSearch() {
@@ -748,7 +757,7 @@ function renderRelated(prov, city, spot) {
     markLoading(im);
     im.src = getSpotCover(s.n, prov.n, s.t, SPOT_KEY.get(s));
     im.addEventListener('error', () => { im.style.visibility = 'hidden'; });
-    it.addEventListener('click', () => { closeLightbox(); openSpot(prov, city, s); });
+    it.addEventListener('click', () => { closeLightbox(); openSpot(prov, city, s, true); });
     row.appendChild(it);
   }
 }
@@ -1011,7 +1020,12 @@ function bindCoverPicker(prov, city, spot) {
 }
 
 // ═════════ 景点详情弹窗 ═════════
-async function openSpot(prov, city, spot) {
+// pushEntry：从列表点开详情时传 true，让地址栏多一条历史（后退即退回列表）
+async function openSpot(prov, city, spot, pushEntry = false) {
+  // ownEntry：当前这条历史是不是我们自己压进来的详情（直达链接时为 false）
+  // fromSpot：这处详情是从另一处详情翻过来的（点相关推荐）
+  const prevState = history.state;
+  const ownEntry = !!(prevState && prevState.spot);
   // 只等「该景点所在省」那一片简介（约 82KB），不再等整库 656KB ——
   // 这一句 await 直接压在用户点下去到弹窗出现之间，是详情页最贵的一段等待。
   // 图集库 239KB 仍放后台加载 —— await 它会让弹窗再卡近 1 秒。
@@ -1165,10 +1179,18 @@ async function openSpot(prov, city, spot) {
   // 视频
   $('#intro-video').href = 'https://search.bilibili.com/all?keyword=' + encodeURIComponent(prov.n + city.n + spot.n);
   $('#intro-modal').hidden = false;
+  routeClosing = false;        // 新开一处：路由上次关弹窗的标记已经用掉了
   // 地址栏同步到具体景点，复制出去就是这一处的直达链接
-  // （用 replaceState，避免触发 hashchange 反过来又开一次弹窗）
   const h = spotHash(prov, city, spot);
-  if (location.hash !== h) history.replaceState(null, '', h);
+  if (pushEntry) hashPush = true;
+  // ownEntry/force：只有「我们自己压进来的那条」才打标记，
+  // 分享链接直达时不留标记，否则关详情会当成站内跳转、一个 back 退出站外。
+  // 同城翻下一处是替换同一条历史，fromSpot 沿用原值，关掉时仍能退回列表。
+  commitHash(h, {
+    spot: true,
+    force: pushEntry || ownEntry,
+    fromSpot: pushEntry ? ownEntry : !!(prevState && prevState.fromSpot),
+  });
   document.title = spot.n + ' · 夜游神';   // 标签页/历史记录里能认出是哪一处
   // 同城「上一处 / 下一处」：看完一处顺势往下翻，不用退回列表。
   // 循环取模，走到头自动回到第一处；同城只有一处时按钮直接隐藏。
@@ -2023,13 +2045,35 @@ function spotHash(prov, city, spot) {
   return '#/' + [prov.n, city.n, spot.n].map(encodeURIComponent).join('/');
 }
 
+// 写地址栏。两种写法在这里分流：
+//   pushState    —— 用户主动跳转（点卡片、点搜索结果、点相关推荐）。多一条历史，
+//                   于是手机上的「后退」是退回上一层，而不是直接离开站点。
+//   replaceState —— 程序化回写（首次定位、关详情后把地址收回城市层）。
+// 以前一律 replaceState，历史里永远只有进站那一条：看三级页面时误触一次后退，
+// 整站就没了，回来还得从头点。
+function commitHash(h, mode) {
+  if (location.hash === h) { hashPush = false; return; }
+  // force：这次替换也要带上「站内条目」标记（同城上一处/下一处复用同一条历史）
+  if (hashPush) {
+    const st = mode && mode.spot ? { nr: 1, spot: 1, fromSpot: !!mode.fromSpot } : { nr: 1 };
+    history.pushState(st, '', h);
+  } else if (mode && mode.force) {
+    history.replaceState({ nr: 1, spot: 1, fromSpot: !!mode.fromSpot }, '', h);
+  } else {
+    // 保留当前条目的 state：直达链接（没有标记）关详情时不至于误退到站外
+    history.replaceState(history.state, '', h);
+  }
+  lastLocHash = location.hash;      // 记下已写入的地址，配合后退去重
+  hashPush = false;
+}
+
 function syncHash() {
   let h = '#/';
   if (nav.level === 'city' && nav.prov) h = '#/' + encodeURIComponent(nav.prov.n);
   else if (nav.level === 'spot' && nav.prov && nav.city) {
     h = '#/' + encodeURIComponent(nav.prov.n) + '/' + encodeURIComponent(nav.city.n);
   }
-  if (location.hash !== h) history.replaceState(null, '', h);
+  commitHash(h);
   try {
     localStorage.setItem('nr_last_nav', JSON.stringify({
       level: nav.level, p: nav.prov && nav.prov.n, c: nav.city && nav.city.n,
@@ -2045,12 +2089,16 @@ function openPendingSpot() {
   openSpot(nav.prov, nav.city, s);
 }
 
+// 地址里的中文是百分号编码的（#/%E5%8C%97%E4%BA%AC/...），跟省名/市名比对前必须先解码。
+// 三处路由解析（applyLocation / parseDeepSpot / applyRoute）共用这一份，别再各写一遍。
+function hashParts() {
+  return (location.hash || '').replace(/^#\/?/, '').split('/').filter(Boolean)
+    .map(x => { try { return decodeURIComponent(x); } catch (e) { return x; } });
+}
+
 function applyLocation() {
   // 1) hash 优先（分享链接可直达）
-  const raw = (location.hash || '').replace(/^#\/?/, '').split('/').filter(Boolean);
-  const parts = raw.map(x => {
-    try { return decodeURIComponent(x); } catch (e) { return x; }
-  });
+  const parts = hashParts();
   if (parts.length) {
     const p = PROVINCES.find(x => x.n === parts[0]);
     if (p) {
@@ -2082,23 +2130,71 @@ function applyLocation() {
   } catch (e) { /* 忽略 */ }
   return false;
 }
-window.addEventListener('hashchange', () => { if (applyLocation()) { renderNav(); openPendingSpot(); } });
+// 地址栏被动变化：浏览器后退/前进，或用户手改 hash（粘贴直达）。
+// 后退一个站内条目时 Chrome 会同时发 popstate 与 hashchange，地址没变就说明是
+// 同一个动作的第二个事件，丢掉即可（不能用时间窗口：连着跳两层可能只隔几十毫秒）。
+// 这里必须同步处理：异步排队会让「换城市后立刻读列表」的调用方读到上一座城市的旧卡片。
+function onLocationChange() {
+  hashPush = false;                    // 地址栏来的变化绝不能再压一条历史
+  const h = location.hash || '';
+  if (h === lastLocHash) return;
+  lastLocHash = h;
+  applyRoute();
+}
+function viewKey() {
+  return nav.level + '|' + (nav.prov ? nav.prov.n : '') + '|' + (nav.city ? nav.city.n : '');
+}
+// 路由主动关详情时置位（见文件顶部 routeClosing）：dialog:close 看到它就知道
+// 这次关闭是「换层」的副产物，不要再回写地址、也不要再退一条历史，否则会跟路由打架。
+function applyRoute() {
+  const parts = hashParts();
+  const modal = $('#intro-modal');
+  const modalOpen = !!(modal && !modal.hidden);
+  if (modalOpen) {
+    // 同城收回地址（后退关详情）：只关弹窗，不重绘列表 ——
+    // 重绘会换掉整格 DOM，dialog.js 就没法把焦点还给刚才那张卡片了。
+    const sameCity = parts.length === 2 && nav.level === 'spot' && nav.prov && nav.city
+      && nav.prov.n === parts[0] && nav.city.n === parts[1];
+    routeClosing = true;
+    modal.hidden = true;
+    if (sameCity) return;
+    // 换城市/换省：关掉详情后还要继续往下走，否则列表停在上一座城市
+  }
+  // 空 hash 就是首页。这里不能再走 applyLocation 的「记忆上次位置」，
+  // 否则从市层退到 #/ 会原地不动，地址和画面对不上。
+  if (!parts.length) {
+    if (nav.level !== 'prov') { nav = { level: 'prov' }; renderNav(); }
+    return;
+  }
+  const before = viewKey();
+  if (!applyLocation()) return;
+  if (viewKey() !== before) renderNav();   // 同一层级只换了景点时不必重绘
+  openPendingSpot();
+}
+window.addEventListener('hashchange', onLocationChange);
+window.addEventListener('popstate', onLocationChange);
 
 bind();
 enhanceDialogs();          // 8 个弹窗统一补 dialog 语义 / 焦点管理 / Esc（见 dialog.js）
 // 关掉详情弹窗后把地址栏退回城市级（开着详情时地址是 #/省/市/景点）
 document.addEventListener('dialog:close', e => {
   if (e.detail && e.detail.id === 'intro-modal') {
-    syncHash();
     document.title = '夜游神 · 山河漫游';
+    // 刚才那次关闭是路由换层顺手关的（地址已经指向新层级），别插手历史
+    if (routeClosing) { routeClosing = false; return; }
+    // 这条详情历史是我们压进来的：关它就是「退回上一步」，历史也一起退，
+    // 不然每看一处景点都留一条已经关掉的地址，之后要按两次后退才退得出一层。
+    // fromSpot（从另一处详情翻过来的）不退：退了会弹回上一处，看着像关不掉。
+    const st = history.state;
+    if (st && st.spot && !st.fromSpot) history.back();
+    else syncHash();
   }
 });
 // 解析地址里的「某处景点」（#/省/市/景点）
 // 注意要在 renderHome() 之前取：renderHome 会把 nav 重置到省份级并
 // 通过 syncHash 把地址改写成 #/，事后再读 hash 就读不到了。
 function parseDeepSpot() {
-  const parts = (location.hash || '').replace(/^#\/?/, '').split('/').filter(Boolean)
-    .map(x => { try { return decodeURIComponent(x); } catch (e) { return x; } });
+  const parts = hashParts();
   if (parts.length < 3) return null;
   const p = PROVINCES.find(x => x.n === parts[0]);
   const c = p && p.cities.find(x => x.n === parts[1]);
