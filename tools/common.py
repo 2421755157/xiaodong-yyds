@@ -97,6 +97,8 @@ def fname_of(t):
 
 
 def lcs_len(a, b):
+    if not a or not b:
+        return 0
     prev = [0] * (len(b) + 1)
     best = 0
     for i in range(1, len(a) + 1):
@@ -186,6 +188,51 @@ def shrink_img(u, w=720):
         (p.scheme, p.netloc, '/dr/%d_%d_%s' % (w, w, p.path),
          p.params, p.query, ''))
 
+
+
+# ── 景点键规则：全项目只有这一份 ──
+# 同名不同地的景点（西湖在杭州和惠州、白马寺在洛阳和海东、世界之窗在深圳和长沙）
+# 是两处不同的地方，维基词条、坐标、全景也各是各的。四套内容库（简介 / 长介绍 /
+# 坐标 / 全景）统一按「省|市|名」分键，前端的 pickSpotDesc / pickCoord 也按同一规则查。
+#
+# 这套规则以前在每个抓取脚本里各抄一份（fetch_descriptions 一份、fetch_long_desc 一份、
+# fill_missing_desc 一份…），抄漏的代价很实在：panorama 与 poiid 两份停留在更早的
+# 裸名版本、之后再没跟上，于是「惠州西湖」详情页放的是杭州地铁站厅那张全景图。
+# 新增内容库从这里取，不要再抄。
+def dup_names(spots):
+    """{重名的景点名}"""
+    c = {}
+    for s in spots:
+        c[s['name']] = c.get(s['name'], 0) + 1
+    return {n for n, k in c.items() if k > 1}
+
+
+def spot_key(s, dup):
+    """景点 → 内容库键：重名用「省|市|名」，唯一用裸名"""
+    n = s['name']
+    if n in dup:
+        return '%s|%s|%s' % (s.get('prov', ''), s.get('city', ''), n)
+    return n
+
+
+def split_key(key):
+    """『省|市|名』→ (prov, city, name)；裸名 → ('', '', 名)"""
+    p = key.split('|')
+    return (p[0], p[1], p[2]) if len(p) == 3 else ('', '', key)
+
+
+def pick_keyed(db, s, dup):
+    """从分键内容库取值：先分城键，**重名景点不许退到裸名**
+
+    裸名键对重名的两处景点必然有一处是错的（历史上就是这么串起来的）。
+    所以只有「这个名字全站只有一处」时，退到裸名才安全。
+    """
+    v = db.get(spot_key(s, dup))
+    if v:
+        return v
+    if s['name'] in dup:
+        return None
+    return db.get(s['name'])
 
 
 def save_json(path, obj):

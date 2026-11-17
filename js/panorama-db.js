@@ -1,14 +1,8 @@
 // ═══ 景点真实全景图库（360°球面 / 宽幅拼接）═══
-// 生成：tools/fetch_panorama.py。格式：{ 景点名: {url, type, title, w, h} }
+// 生成：tools/fetch_panorama.py。格式：{ 键: {url, type, title, w, h} }
+// 键规则同简介库：重名景点用「省|市|名」，唯一景点用裸名。
 // type: sphere=等距柱状(可360°环视) / wide=宽幅拼接(可横向环视)
 export const PANORAMA_DB = {
- "桂林": {
-  "url": "https://upload.wikimedia.org/wikipedia/commons/c/c7/1_guilin_panorama_2011.jpg",
-  "type": "wide",
-  "title": "File:1 guilin panorama 2011.jpg",
-  "w": 7743,
-  "h": 1856
- },
  "丽江古城": {
   "url": "https://upload.wikimedia.org/wikipedia/commons/6/6e/1_lijiang_old_town_2012.jpg",
   "type": "wide",
@@ -23,75 +17,12 @@ export const PANORAMA_DB = {
   "w": 13206,
   "h": 6676
  },
- "重庆": {
-  "url": "https://upload.wikimedia.org/wikipedia/commons/e/ee/Chongqing_-_View_Yangtse.jpg",
-  "type": "wide",
-  "title": "File:Chongqing - View Yangtse.jpg",
-  "w": 9520,
-  "h": 1504
- },
- "鸡鸣楼": {
-  "url": "https://upload.wikimedia.org/wikipedia/commons/0/08/JiQingLouWide.jpg",
-  "type": "wide",
-  "title": "File:JiQingLouWide.jpg",
-  "w": 4351,
-  "h": 1466
- },
  "金山岭长城": {
   "url": "https://upload.wikimedia.org/wikipedia/commons/b/b0/Jinshanling-panorama.jpg",
   "type": "wide",
   "title": "File:Jinshanling-panorama.jpg",
   "w": 4500,
   "h": 1039
- },
- "兰州": {
-  "url": "https://upload.wikimedia.org/wikipedia/commons/5/5a/Lanzhou_Skyline_201906.jpg",
-  "type": "wide",
-  "title": "File:Lanzhou Skyline 201906.jpg",
-  "w": 6732,
-  "h": 2221
- },
- "南宁": {
-  "url": "https://upload.wikimedia.org/wikipedia/commons/a/a1/Nanning_skyline.png",
-  "type": "wide",
-  "title": "File:Nanning skyline.png",
-  "w": 13303,
-  "h": 3400
- },
- "司马台长城": {
-  "url": "https://upload.wikimedia.org/wikipedia/commons/5/59/Simatai_Great_Wall_1.jpg",
-  "type": "wide",
-  "title": "File:Simatai Great Wall 1.jpg",
-  "w": 5998,
-  "h": 1022
- },
- "定海": {
-  "url": "https://upload.wikimedia.org/wikipedia/commons/9/94/Skyline_of_Dinghai_harbor_waterfront.jpg",
-  "type": "wide",
-  "title": "File:Skyline of Dinghai harbor waterfront.jpg",
-  "w": 13041,
-  "h": 3064
- },
- "武乡": {
-  "url": "https://upload.wikimedia.org/wikipedia/commons/1/16/Wuxiang_New_Area_Skyline.png",
-  "type": "wide",
-  "title": "File:Wuxiang New Area Skyline.png",
-  "w": 11058,
-  "h": 3340
- },
- "承德避暑山庄": {
-  "url": "https://upload.wikimedia.org/wikipedia/commons/6/64/Zhuangyuan_Panorama.jpg",
-  "type": "wide",
-  "title": "File:Zhuangyuan Panorama.jpg",
-  "w": 11594,
-  "h": 1744
- },
- "珠海": {
-  "url": "https://upload.wikimedia.org/wikipedia/commons/9/95/Zhuhai-panorama-Jida.jpg",
-  "type": "wide",
-  "title": "File:Zhuhai-panorama-Jida.jpg",
-  "w": 11308,
-  "h": 2063
  },
  "故宫": {
   "url": "https://upload.wikimedia.org/wikipedia/commons/d/d5/%E5%8C%97%E4%BA%AC%E6%95%85%E5%AE%AB%E5%85%A8%E6%99%AF_%2885363753%29.jpeg",
@@ -240,13 +171,6 @@ export const PANORAMA_DB = {
   "w": 2592,
   "h": 1456
  },
- "西湖": {
-  "url": "https://upload.wikimedia.org/wikipedia/commons/0/0a/Line_1_concourse_panorama_of_West_Lake_Cultural_Square_Station%2C_202412.jpg",
-  "type": "wide",
-  "title": "File:Line 1 concourse panorama of West Lake Cultural Square Station, 202412.jpg",
-  "w": 17472,
-  "h": 3440
- },
  "千岛湖": {
   "url": "https://upload.wikimedia.org/wikipedia/commons/2/2b/20120624%E6%B7%B3%E5%AE%89%E5%8E%BF%E5%A4%A9%E5%B1%BF%E5%88%AB%E5%A2%85%E5%B1%B1%E9%81%93%E4%BF%AF%E7%9E%B0%E5%8D%83%E5%B2%9B%E6%B9%96%E5%85%A8%E6%99%AF360_-_panoramio.jpg",
   "type": "wide",
@@ -373,13 +297,6 @@ export const PANORAMA_DB = {
   "w": 5664,
   "h": 3184
  },
- "白马寺": {
-  "url": "https://upload.wikimedia.org/wikipedia/commons/e/ef/%E7%99%BD%E9%A9%AC%E5%AF%BA%E5%85%A8%E6%99%AF.jpg",
-  "type": "wide",
-  "title": "File:白马寺全景.jpg",
-  "w": 4794,
-  "h": 1299
- },
  "嘉陵江": {
   "url": "https://upload.wikimedia.org/wikipedia/commons/a/ad/%E5%8D%83%E5%8E%AE%E9%97%A8%E5%98%89%E9%99%B5%E6%B1%9F%E5%A4%A7%E6%A1%A5_%E5%85%A8%E6%99%AF%E5%9B%BE2.png",
   "type": "sphere",
@@ -485,13 +402,6 @@ export const PANORAMA_DB = {
   "w": 10496,
   "h": 1792
  },
- "关帝庙": {
-  "url": "https://upload.wikimedia.org/wikipedia/commons/0/09/%E5%85%B3%E5%B8%9D%E5%BA%99%E7%9F%B3%E9%9B%95%E5%85%A8%E6%99%AF_-_panoramio.jpg",
-  "type": "wide",
-  "title": "File:关帝庙石雕全景 - panoramio.jpg",
-  "w": 10706,
-  "h": 2142
- },
  "黄鹤楼": {
   "url": "https://upload.wikimedia.org/wikipedia/commons/9/9f/%E9%BB%84%E9%B9%A4%E6%A5%BC%E7%9C%BA%E6%9C%9B%E6%AD%A6%E6%B1%89%E9%95%BF%E6%B1%9F%E5%A4%A7%E6%A1%A5.jpg",
   "type": "wide",
@@ -541,13 +451,6 @@ export const PANORAMA_DB = {
   "w": 6016,
   "h": 1856
  },
- "世界之窗": {
-  "url": "https://upload.wikimedia.org/wikipedia/commons/8/8e/%E4%B8%96%E7%95%8C%E4%B9%8B%E7%AA%97%E5%85%A8%E6%99%AF%E5%9B%BE_%282013-02-14%29_-_panoramio.jpg",
-  "type": "wide",
-  "title": "File:世界之窗全景图 (2013-02-14) - panoramio.jpg",
-  "w": 3500,
-  "h": 1101
- },
  "云山": {
   "url": "https://upload.wikimedia.org/wikipedia/commons/b/bc/%E6%A4%92%E6%B1%9F%E7%99%BD%E4%BA%91%E5%B1%B1%E4%BA%91%E4%B8%AD%E7%BB%BF%E9%81%93%E7%9C%BA%E6%9C%9B%E6%A4%92%E6%B1%9F%E8%80%81%E5%9F%8E%E5%8C%BA%E5%85%A8%E6%99%AF.jpg",
   "type": "wide",
@@ -596,13 +499,6 @@ export const PANORAMA_DB = {
   "title": "File:Huguangyan Maar Lake.jpg",
   "w": 3360,
   "h": 1376
- },
- "凤山": {
-  "url": "https://upload.wikimedia.org/wikipedia/commons/9/9f/%E5%87%A4%E5%B1%B1%E8%A1%97%E9%81%93.jpg",
-  "type": "wide",
-  "title": "File:凤山街道.jpg",
-  "w": 2448,
-  "h": 752
  },
  "漓江": {
   "url": "https://upload.wikimedia.org/wikipedia/commons/c/cf/%E5%B9%B2%E6%9E%AF%E6%BC%93%E6%B1%9F%E5%85%A8%E6%99%AF.jpg",
@@ -715,5 +611,12 @@ export const PANORAMA_DB = {
   "title": "File:“中環置地廣場 The Landmark, Central” 香港商場建築全景攝影 Hong Kong Shopping Malls Architecture Panoramic Photography SML.20130315.EOSM.03305-SML.20130315.EOSM.03313-Pano.Cylindrical.156x68.5 (8558922303).jpg",
   "w": 7215,
   "h": 3218
+ },
+ "避暑山庄": {
+  "url": "https://upload.wikimedia.org/wikipedia/commons/6/64/Zhuangyuan_Panorama.jpg",
+  "type": "wide",
+  "title": "File:Zhuangyuan Panorama.jpg",
+  "w": 11594,
+  "h": 1744
  }
 };

@@ -24,7 +24,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from common import (DATA, JS, NOISE_PAREN, PINYIN_PAREN, ZHW, get_json,
-                    is_disambig, js_export, load_json, save_json, search_title)
+                    is_disambig, js_export, load_json, save_json, search_title,
+                    split_key)
 from place_guard import long_reject
 
 CACHE = os.path.join(DATA, 'long_db.json')
@@ -100,14 +101,6 @@ def chunk_of(key):
     """
     name = key.rsplit('|', 1)[-1]
     return ord(name[0]) % CHUNKS if name else 0
-
-
-def split_key(key):
-    """『省|市|名』→ (prov, city, name)；裸名 → ('', '', 名)"""
-    parts = key.split('|')
-    if len(parts) == 3:
-        return parts[0], parts[1], parts[2]
-    return '', '', key
 
 
 def strip_lead(long_text, short_text):

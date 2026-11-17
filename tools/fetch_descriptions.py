@@ -21,8 +21,8 @@ from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from common import (DATA, JS, ZHW, clean_text, get_json, is_disambig, js_export,
-                    load_json, save_json, search_title as _search_title)
+from common import (DATA, JS, ZHW, clean_text, dup_names, get_json, is_disambig,
+                    js_export, load_json, save_json, search_title, spot_key)
 from place_guard import mismatch
 
 SPOT_CACHE = os.path.join(DATA, 'desc_db.json')
@@ -77,11 +77,6 @@ def run_batches(all_titles, workers=WORKERS):
     return got
 
 
-def search_title(name, city, prov):
-    """搜索定位紧匹配词条（实现见 common.search_title）"""
-    return _search_title(name, city, prov)
-
-
 def load_spots():
     """景点索引（由 tools/build-spot-index.mjs 生成）"""
     return load_json(os.path.join(DATA, 'spots_uniq.json'), [])
@@ -91,17 +86,8 @@ def load_spots():
 # 这类名字在每个城市指的是一处不同的风景，维基也是不同词条。
 # 早先只按「景点名」做键，后入库的城市直接复用了先入库城市那段话：
 # 惠州西湖显示杭州西湖、呼和浩特的寺庙显示拉萨大昭寺、清远显示韶关丹霞山。
-# 所以重名景点一律用「省|市|名」做键，前端也按同一规则查（见 js/lexicon.js）。
-def dup_names(spots):
-    c = Counter(s['name'] for s in spots)
-    return {n for n, k in c.items() if k > 1}
-
-
-def spot_desc_key(s, dup):
-    if s['name'] in dup:
-        return '%s|%s|%s' % (s.get('prov', ''), s.get('city', ''), s['name'])
-    return s['name']
-
+# 所以重名景点一律用「省|市|名」做键（键规则见 common.spot_key），
+# 前端也按同一规则查（见 js/lexicon.js）。
 
 # 词条名后面接这些后缀，讲的通常是同名的基础设施 / 行政区 / 作品，不是这处风景。
 # 实际踩过：「五当召」取到「五当召镇」、「南湖」取到「嘉兴南湖机场」、
@@ -292,7 +278,7 @@ def do_spots(limit):
         print('清理空简介缓存 %d 条（会重新抓）' % len(empty), flush=True)
     spots = load_spots()
     dup = dup_names(spots)
-    by_key = {spot_desc_key(s, dup): s for s in spots}
+    by_key = {spot_key(s, dup): s for s in spots}
     rejects = load_json(REJECT_CACHE, {})
     block = load_json(BLOCK_CACHE, {})
     for k in block:
@@ -316,7 +302,7 @@ def do_spots(limit):
             print('   · %s：%s' % (n, reason), flush=True)
 
     todo = [s for s in spots
-            if spot_desc_key(s, dup) not in db and spot_desc_key(s, dup) not in block]
+            if spot_key(s, dup) not in db and spot_key(s, dup) not in block]
     print('景点简介：已有 %d 键 / %d 处景点，本轮待查 %d（重名景点 %d）'
           % (len(db), len(spots), len(todo), sum(1 for s in todo if s['name'] in dup)), flush=True)
     if not todo:
@@ -372,7 +358,7 @@ def do_spots(limit):
         titles = {}
         hit2 = 0
         for s, t, txt in resolved:
-            key = spot_desc_key(s, dup)
+            key = spot_key(s, dup)
             if t and txt:
                 db[key] = [txt, t]
                 hit2 += 1
@@ -405,7 +391,7 @@ def do_spots(limit):
             for s, (rec, how) in ex.map(work, dup_todo):
                 tally[how] += 1
                 if rec:
-                    db[spot_desc_key(s, dup)] = rec
+                    db[spot_key(s, dup)] = rec
         print('  阶段C 重名景点 %d 处：本地词条 %d / 通用词条 %d / 无 %d'
               % (len(dup_todo), tally['scoped'], tally['generic'], tally['none']), flush=True)
 

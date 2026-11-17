@@ -17,17 +17,23 @@
     python tools/fetch_panorama.py --export-only
 
 产出：
-    data/panorama_db.json   { 景点名: {url, type, title, w, h} }
+    data/panorama_db.json   { 键: {url, type, title, w, h} }
+                            键规则同其它内容库：重名景点用「省|市|名」，唯一用裸名
     js/panorama-db.js       PANORAMA_DB（详情页按需加载）
 """
 import argparse, json, os, re, sys, time, urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from common import (CMW, DATA, JS, get_json, is_good, js_export, load_json,
-                    relevance, save_json)
+from common import (CMW, DATA, JS, dup_names, get_json, is_good, js_export,
+                    load_json, pick_keyed, relevance, save_json, spot_key)
 
 CACHE = os.path.join(DATA, 'panorama_db.json')
+# 人工判过「这张全景挂不到任何一处景点上」的名字：{景点名: 理由}。
+# 重名景点（西湖/白马寺/关帝庙/世界之窗/凤山）的文件名里没有城市信息，
+# 维基又给不出坐标，挂给哪一座都是猜；宁可两座都不显示，也不要给其中一座放错图。
+# 与 data/img_gallery_reject.json 同一套用法：记了账，重跑时不再抓。
+DROP = os.path.join(DATA, 'panorama_drop.json')
 WORKERS = 6
 
 # 分类枚举：这些分类里的文件名已经点明了地点
@@ -56,6 +62,10 @@ MANUAL_MAP = {
     '1 zhangjiajie huangshizhai wulingyuan panorama 2012.jpg': '张家界国家森林公园',
     'zhangjiajie (17198899337).jpg': '张家界国家森林公园',
     'jinshanling-panorama.jpg ': '金山岭长城',
+    # 手工映射的值必须是 spots_uniq.json 里真实存在的景点名：写成别的写法
+    # （早先这里是「承德避暑山庄」，而列表里叫「避暑山庄」）就会生成一个
+    # 前端永远取不到的键，等于白抓。
+    'zhuangyuan panorama.jpg': '避暑山庄',
 }
 
 
@@ -178,8 +188,15 @@ def pick_for_spot(name, city, en_title, db):
     return best[1] if best else None
 
 
-def sweep_categories(db):
-    """分类枚举：文件名能对上景点名的直接收"""
+def sweep_categories(db, by_name, dup):
+    """分类枚举：文件名能对上景点名的直接收
+
+    收进来的键必须过两道关，否则就是一张永远显示不出来的图：
+      · 名字得在景点列表里（分类里有大量「桂林」「重庆」「兰州」这类城市天际线，
+        以及景点列表里没有的司马台长城、鸡鸣楼）；
+      · 重名景点不能靠文件名认领（「西湖」既可能是杭州也可能是惠州），
+        这类只能等 pick_for_spot 按城市校验后入库。
+    """
     added = 0
     for cat in CATEGORIES:
         url = CMW + urllib.parse.urlencode({
@@ -197,22 +214,21 @@ def sweep_categories(db):
             if NOT_PHOTO.search(t + ' ' + info['desc']):
                 continue
             low = t.lower().replace('file:', '').strip()
-            spot = MANUAL_MAP.get(low)
+            spot = MANUAL_MAP.get(low) or MANUAL_MAP.get(low.split('.')[0])
             if not spot:
-                base = low.split('.')[0]
-                spot = MANUAL_MAP.get(base)
-            if not spot:
-                # 文件名里含中文景点名 → 直接按名匹配
-                for cand in db.keys():
+                # 文件名里含中文景点名 → 按名匹配（长名优先，「金山岭长城」先于「长城」）
+                for cand in sorted(by_name, key=len, reverse=True):
                     if cand in t:
                         spot = cand
                         break
-            if not spot:
+            s = by_name.get(spot) if spot else None
+            if not s or s['name'] in dup:
                 continue
-            if spot in db:
+            key = spot_key(s, dup)
+            if key in db:
                 continue
-            db[spot] = {'url': info['url'], 'type': kind, 'title': t,
-                         'w': info['w'], 'h': info['h']}
+            db[key] = {'url': info['url'], 'type': kind, 'title': t,
+                       'w': info['w'], 'h': info['h']}
             added += 1
     return added
 
@@ -222,11 +238,42 @@ def export():
     if not db:
         print('缓存为空，拒绝导出')
         return
+    spots = load_json(os.path.join(DATA, 'spots_uniq.json'), [])
+    dup = dup_names(spots)
+    places = {}
+    for s in spots:
+        places.setdefault(s['name'], set()).add((s.get('prov', ''), s.get('city', '')))
+    # 导出前按键规则清一遍（幂等），三类键留着都是坑：
+    #  · 重名景点的裸名键 —— 前端 pickBySpotKey 的兜底会把同一张图发给两座城市，
+    #    必然错一处（惠州西湖曾显示杭州地铁站厅的全景）；归属无法确证时宁可不显示。
+    #  · 景点列表里没有的键（城市天际线、已改名的景点）—— 永远显示不出来。
+    #  · 「省|市|名」里的城市对不上 —— 幽灵键，同样永远显示不出来。
+    bare_dup, ghost = [], []
+    for k in list(db):
+        parts = k.split('|')
+        if len(parts) == 3:
+            if (parts[0], parts[1]) not in places.get(parts[2], ()):
+                ghost.append(k)
+                db.pop(k)
+        elif k in dup:
+            bare_dup.append(k)
+            db.pop(k)
+        elif k not in places:
+            ghost.append(k)
+            db.pop(k)
+    if bare_dup:
+        print('清掉重名景点的裸名键 %d 个（%s）：文件名里没有城市信息，挂给谁都可能是错的'
+              % (len(bare_dup), '、'.join(bare_dup[:5])))
+    if ghost:
+        print('清掉景点列表里没有的键 %d 个（%s）：前端永远取不到'
+              % (len(ghost), '、'.join(ghost[:5])))
+    save_json(CACHE, db)          # 清洗结果回写，避免下次重复处理
     sph = sum(1 for v in db.values() if v['type'] == 'sphere')
     open(os.path.join(JS, 'panorama-db.js'), 'w', encoding='utf-8').write(js_export(
         db,
         '// ═══ 景点真实全景图库（360°球面 / 宽幅拼接）═══\n'
-        '// 生成：tools/fetch_panorama.py。格式：{ 景点名: {url, type, title, w, h} }\n'
+        '// 生成：tools/fetch_panorama.py。格式：{ 键: {url, type, title, w, h} }\n'
+        '// 键规则同简介库：重名景点用「省|市|名」，唯一景点用裸名。\n'
         '// type: sphere=等距柱状(可360°环视) / wide=宽幅拼接(可横向环视)\n'
         'export const PANORAMA_DB = '))
     print('导出 %d 条（球面 %d / 宽幅 %d）→ js/panorama-db.js'
@@ -245,34 +292,46 @@ if __name__ == '__main__':
         spots = load_json(os.path.join(DATA, 'spots_uniq.json'), [])
         short = load_json(os.path.join(DATA, 'desc_db.json'), {})
         img = load_json(os.path.join(DATA, 'img_db.json'), {})
-        # 优先名景：有权威配图(conf>=3) 或已有真实简介的
-        cands = [s for s in spots if s['name'] not in db
-                 and (img.get(s['name'], {}).get('conf', 1) >= 3 or s['name'] in short)]
+        drop = load_json(DROP, {})
+        dup = dup_names(spots)
+        by_name = {}
+        for s in spots:
+            by_name.setdefault(s['name'], s)
+        # 优先名景：有权威配图(conf>=3) 或已有真实简介的。
+        # 简介库与图库都是分键的，重名景点要按「省|市|名」查，
+        # 早先按裸名查 → 重名景点一条都不进候选，等于永远没有全景。
+        def conf_of(s):
+            return (pick_keyed(img, s, dup) or {}).get('conf', 1)
+
+        cands = [s for s in spots if spot_key(s, dup) not in db
+                 and s['name'] not in drop
+                 and (conf_of(s) >= 3 or pick_keyed(short, s, dup))]
         # 排序：conf 高的优先，名景在前
-        cands.sort(key=lambda s: -(img.get(s['name'], {}).get('conf', 1)))
+        cands.sort(key=lambda s: -conf_of(s))
         if a.limit:
             cands = cands[:a.limit]
-        print('待查全景 %d 个（总候选 %d）' % (len(cands), len(spots)), flush=True)
+        print('待查全景 %d 个（总候选 %d，跳过人工不补 %d 个名字）'
+              % (len(cands), len(spots), len(drop)), flush=True)
 
-        n = sweep_categories(db)
+        n = sweep_categories(db, by_name, dup)
         print('分类枚举新增 %d 条' % n, flush=True)
         save_json(CACHE, db)
 
         t0, done, hit = time.time(), 0, 0
 
         def work(s):
-            en = short.get(s['name'])
+            en = pick_keyed(short, s, dup)
             en = en[1] if isinstance(en, list) and len(en) > 1 else ''
             try:
-                return s['name'], pick_for_spot(s['name'], s.get('city', ''), en, db)
+                return spot_key(s, dup), pick_for_spot(s['name'], s.get('city', ''), en, db)
             except Exception:
-                return s['name'], None
+                return spot_key(s, dup), None
 
         with ThreadPoolExecutor(max_workers=a.workers) as ex:
-            for name, r in ex.map(work, cands):
+            for key, r in ex.map(work, cands):
                 done += 1
                 if r:
-                    db[name] = r
+                    db[key] = r
                     hit += 1
                 if done % 20 == 0:
                     save_json(CACHE, db)

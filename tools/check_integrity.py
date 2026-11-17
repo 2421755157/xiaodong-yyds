@@ -590,6 +590,46 @@ try:
 except Exception as e:
     problems.append('图组导出校验失败（%s）' % e)
 
+# 19) 全景库：键规则与简介 / 长介绍 / 坐标同一套「省|市|名」
+#     前端 pickBySpotKey 是 `read(key) || read(name)`：库里只要还留一条裸名键，
+#     没有分城键的那一处就会把它当成自己的图 —— 惠州西湖详情页放的其实是杭州
+#     地铁 1 号线站厅的全景（Line 1 concourse ... West Lake Cultural Square Station）。
+#     抓取脚本（fetch_panorama）以前按裸名判断+写入，等于每跑一次就把这坑填回去，
+#     所以这条闸同时守住数据与管线。
+#     另外库里还有一批键根本不在景点列表里（桂林/重庆/兰州这些城市天际线），
+#     前端永远取不到，白占一个按需加载的模块。
+try:
+    pano_data = json.load(io.open(os.path.join(ROOT, 'data', 'panorama_db.json'),
+                                  encoding='utf-8'))
+    pano_js = js_obj(os.path.join(JS, 'panorama-db.js'), 'PANORAMA_DB')
+    pano_names = {s['name'] for s in spots_idx}
+    pano_places = {}
+    for _s in spots_idx:
+        pano_places.setdefault(_s['name'], set()).add((_s['prov'], _s['city']))
+    pano_bare, pano_ghost = [], []
+    for _k in pano_data:
+        _p = _k.split('|')
+        if len(_p) == 3:
+            if (_p[0], _p[1]) not in pano_places.get(_p[2], ()):
+                pano_ghost.append(_k)
+        elif _k in dup:
+            pano_bare.append(_k)
+        elif _k not in pano_names:
+            pano_ghost.append(_k)
+    if pano_bare:
+        problems.append('全景库重名景点还留着裸名键 %d 个（%s）—— 同一张图会发给所有同名景点'
+                        '→ python tools/fetch_panorama.py --export-only'
+                        % (len(pano_bare), '、'.join(pano_bare[:3])))
+    if pano_ghost:
+        problems.append('全景库挂着景点列表里没有的键 %d 个（%s）—— 前端永远取不到'
+                        % (len(pano_ghost), '、'.join(pano_ghost[:3])))
+    if pano_js != pano_data:
+        problems.append('全景库 js（%d 条）与 data（%d 条）不一致'
+                        '→ python tools/fetch_panorama.py --export-only'
+                        % (len(pano_js), len(pano_data)))
+except Exception as e:
+    problems.append('全景库键规则校验失败（%s）' % e)
+
 print('检查完成：%d 个问题' % len(problems))
 for p in problems:
     print('  ✗', p)

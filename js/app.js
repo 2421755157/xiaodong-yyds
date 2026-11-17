@@ -12,7 +12,7 @@ import { isMobile, hasWebGL } from './env.js';
 import { loadThreeRuntime, loadPanorama, warmUpThree } from './three-loader.js';
 import { analyzeToday, drawMoodCard } from './mood.js';
 import { FORTUNES, greetingFor, SPOT_MEMES, expandDesc, pickN, spotDescKey, pickSpotDesc,
-         pickCoord } from './lexicon.js';
+         pickCoord, pickBySpotKey } from './lexicon.js';
 import { getSpotImages, getSpotCover, galleryReady, ensureGallery,
          loadSpotImages, spotImagesReady } from './spot-images.js';
 import { streetViewFor, hasStreetView, POIID_DB } from './streetview.js';
@@ -863,7 +863,8 @@ async function renderPanoBtn(spot) {
   const btn = $('#intro-pano');
   if (!btn) return;
   await PANORAMA_DB.load();
-  const p = PANORAMA_DB.get(spot.n);
+  // 与简介/坐标同一套键：重名景点各看各的（西湖在杭州和惠州是两处）
+  const p = pickBySpotKey(PANORAMA_DB.get, SPOT_KEY.get(spot), spot.n);
   if (!p || !p.url) { btn.hidden = true; return; }
   btn.hidden = false;
   btn.textContent = p.type === 'sphere' ? '🖐 360° 全景' : '🖐 宽幅全景';
@@ -1562,7 +1563,8 @@ async function openSpotDetail() {
   if (pbtn) {
     pbtn.hidden = true;
     PANORAMA_DB.load().then(() => {
-      const p = PANORAMA_DB.get(activeSpot.name);
+      // 3D 里看的也是「这一处」，全景同样用分城键取
+      const p = pickBySpotKey(PANORAMA_DB.get, SPOT_KEY.get(activeSpot), activeSpot.name);
       if (p && p.url) {
         pbtn.hidden = false;
         pbtn.textContent = p.type === 'sphere' ? '🖐 360° 全景' : '🖐 宽幅全景';

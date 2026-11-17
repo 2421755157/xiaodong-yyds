@@ -194,8 +194,17 @@ export function pickSpotDesc(read, key, name, fallback) {
   return read(key) || read(name) || fallback || '';
 }
 
-/** 取景点坐标：键规则与简介库相同，先查「省|市|名」再退到裸名 */
-export function pickCoord(read, key, name) {
+/** 取景点附带资源（坐标 / 全景…）：键规则同简介库，先「省|市|名」再退到裸名
+ *  内容库里只给重名景点存分城键、唯一景点存裸名，所以两次都试。
+ *  裸名兜底的前提是「重名景点不得留裸名键」—— 这条由 check_integrity 守着，
+ *  否则一张图/一个坐标会同时发给两座城市（惠州西湖曾显示杭州那张全景）。
+ */
+export function pickBySpotKey(read, key, name) {
   if (!read) return null;
   return read(key) || read(name) || null;
+}
+
+/** 取景点坐标：键规则与简介库相同 */
+export function pickCoord(read, key, name) {
+  return pickBySpotKey(read, key, name);
 }

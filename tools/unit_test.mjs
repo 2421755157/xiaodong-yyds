@@ -18,7 +18,7 @@ import * as sv from '../js/streetview.js';
 import * as si from '../js/spot-images.js';
 import * as meta from '../js/scenes-meta.js';
 import * as tl from '../js/three-loader.js';
-import { spotDescKey, pickSpotDesc, pickCoord } from '../js/lexicon.js';
+import { spotDescKey, pickSpotDesc, pickCoord, pickBySpotKey } from '../js/lexicon.js';
 import { PROVINCES } from '../js/china-data.js';
 
 let passed = 0, failed = 0;
@@ -366,6 +366,47 @@ await test('pickCoord: 没有分城条目时退到裸名', () => {
 await test('pickCoord: 都没有时返回 null（详情页据此隐藏小地图）', () => {
   assert.equal(pickCoord(k => ({}[k]), 'x|y|z', 'q'), null);
   assert.equal(pickCoord(null, 'k', 'n'), null);
+});
+
+// ── 全景库的键（详情页「实景全景」按钮）──
+// 全景库原先按裸名存、前端也只按裸名取：西湖在杭州和惠州各一处，
+// 惠州详情页放的是杭州那张（文件其实是地铁 1 号线站厅，连湖景都不是）。
+await test('pickBySpotKey: 分城键优先于裸名', () => {
+  const db = { '西湖': { url: '杭州的' }, '广东|惠州|西湖': { url: '惠州的' } };
+  assert.equal(pickBySpotKey(k => db[k], '广东|惠州|西湖', '西湖').url, '惠州的');
+});
+await test('pickBySpotKey: 唯一景点用裸名条目', () => {
+  const db = { '故宫': { url: 'a' } };
+  assert.equal(pickBySpotKey(k => db[k], '北京|北京|故宫', '故宫').url, 'a');
+  assert.equal(pickBySpotKey(k => db[k], 'x|y|不存在', '不存在'), null);
+  assert.equal(pickBySpotKey(null, 'k', 'n'), null);
+});
+
+// ── 全景库的数据不变量 ──
+// 前端查不到分城键时会退到裸名，所以库里只要有裸名键，同名景点就一定串图。
+await test('全景库: 重名景点不得残留裸名键', async () => {
+  const { PANORAMA_DB } = await import('../js/panorama-db.js');
+  const cnt = {};
+  for (const p of PROVINCES) for (const c of p.cities) for (const s of c.spots) {
+    cnt[s.n] = (cnt[s.n] || 0) + 1;
+  }
+  const leaked = Object.keys(cnt).filter(n => cnt[n] > 1 && PANORAMA_DB[n]);
+  assert.deepEqual(leaked, [], '仍是裸名键的重名景点：' + leaked.slice(0, 5).join('、'));
+});
+await test('全景库: 键都能对上景点列表里的那一处（没有取不到的键）', async () => {
+  const { PANORAMA_DB } = await import('../js/panorama-db.js');
+  const at = {};
+  for (const p of PROVINCES) for (const c of p.cities) for (const s of c.spots) {
+    (at[s.n] = at[s.n] || []).push(p.n + '|' + c.n);
+  }
+  const bad = [];
+  for (const k of Object.keys(PANORAMA_DB)) {
+    const parts = k.split('|');
+    if (parts.length === 3) {
+      if (!(at[parts[2]] || []).includes(parts[0] + '|' + parts[1])) bad.push(k);
+    } else if (!at[k]) bad.push(k);
+  }
+  assert.deepEqual(bad, [], '前端永远取不到的键：' + bad.slice(0, 5).join('、'));
 });
 
 // ── 简介库的数据不变量 ──

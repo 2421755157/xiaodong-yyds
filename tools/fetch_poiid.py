@@ -21,7 +21,8 @@ import argparse, json, math, os, re, sys, time
 from concurrent.futures import ThreadPoolExecutor
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from common import DATA, JS, get_json, load_json, save_json
+from common import (DATA, JS, dup_names, get_json, lcs_len, load_json,
+                    pick_keyed, save_json, spot_key)
 
 # ── 坐标：百度返回 BD-09，我们的库是 WGS84 → 需要换算后比距离 ──
 PI = 3.1415926535897932384626
@@ -77,23 +78,6 @@ def haversine(lng1, lat1, lng2, lat2):
     dl = math.radians(lng2 - lng1)
     h = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
     return 2 * r * math.asin(math.sqrt(h))
-
-
-def lcs_len(a, b):
-    """最长公共子串长度（中文名相似度用）"""
-    if not a or not b:
-        return 0
-    prev = [0] * (len(b) + 1)
-    best = 0
-    for i in range(1, len(a) + 1):
-        cur = [0] * (len(b) + 1)
-        for j in range(1, len(b) + 1):
-            if a[i - 1] == b[j - 1]:
-                cur[j] = prev[j - 1] + 1
-                if cur[j] > best:
-                    best = cur[j]
-        prev = cur
-    return best
 
 
 def read_ak(args):
@@ -206,16 +190,23 @@ def collect(ak, limit=None, workers=6):
     coords = load_json(os.path.join(DATA, 'coords.json'), {})
     cache_path = os.path.join(DATA, 'poiid_db.json')
     db = load_json(cache_path, {})
+    dup = dup_names(spots)
 
     todo = []
+    no_coord = 0
     for s in spots:
-        n = s['name']
-        if n in db and db[n]:
+        key = spot_key(s, dup)
+        if db.get(key):
             continue
-        c = coords.get(n)
+        # 坐标库是分键的：重名景点只有「省|市|名」这一条，按裸名取必然落空
+        # （早先就是按裸名取，重名景点一条都进不了候选，静默少查 99 处）
+        c = pick_keyed(coords, s, dup)
         if not c:
+            no_coord += 1
             continue
-        todo.append((n, s.get('city', ''), s.get('prov', ''), c[0], c[1]))
+        todo.append((key, s['name'], s.get('city', ''), s.get('prov', ''), c[0], c[1]))
+    if no_coord:
+        print('无坐标跳过 %d 处（坐标库还没有这一处）' % no_coord, flush=True)
     # 打乱顺序，避免失败的头部反复占用名额
     import random
     random.Random(20261024).shuffle(todo)
@@ -230,21 +221,21 @@ def collect(ak, limit=None, workers=6):
     fatal = []          # 致命错误（服务被禁用等）：一旦出现立即停止
 
     def work(item):
-        n, city, prov, lng, lat = item
+        key, name, city, prov, lng, lat = item
         region = city or prov
         if not region:
-            return n, None
+            return key, None
         try:
-            res = search_poi(ak, n, region, city, n, lng, lat)
+            res = search_poi(ak, name, region, city, name, lng, lat)
         except Exception:
             res = None
         # 服务被禁用这类致命错误要冒泡，不能当成"没查到"吞掉
         if res and res[0] == 'ERR' and str(res[2]) == '240':
-            return n, res
-        return n, res
+            return key, res
+        return key, res
 
     with ThreadPoolExecutor(max_workers=workers) as ex:
-        for n, res in ex.map(work, todo):
+        for key, res in ex.map(work, todo):
             done += 1
             if res and res[0] == 'ERR':
                 stat[res[2]] = stat.get(res[2], 0) + 1
@@ -252,14 +243,14 @@ def collect(ak, limit=None, workers=6):
                     # 服务被禁用：立刻停止，别把剩下的都写成空值
                     fatal.append(res[1])
                     break
-                db[n] = ''
+                db[key] = ''
             elif res:
                 uid, rname, dist, rlng, rlat, addr = res
-                db[n] = {'uid': uid, 'name': rname, 'lng': rlng, 'lat': rlat,
-                         'addr': addr, 'dist': int(dist)}
+                db[key] = {'uid': uid, 'name': rname, 'lng': rlng, 'lat': rlat,
+                           'addr': addr, 'dist': int(dist)}
                 hit += 1
             else:
-                db[n] = ''
+                db[key] = ''
             if done % 20 == 0:
                 save_json(cache_path, db)
                 print('  进度 %d/%d 命中 %d' % (done, len(todo), hit), flush=True)
