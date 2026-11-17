@@ -87,6 +87,7 @@ def main():
         gallery,
         '// ═══ 景点补充图组（打开详情时懒加载）═══\n'
         '// 生成：tools/export_db.py。每景点最多 2 张，与主图合成 3 格图集。\n'
+        '// 补图：tools/fill_gallery_extra.py（补完必须重跑本脚本，否则前端看不到）。\n'
         'export const SPOT_GALLERY_DB = '))
 
     print('主图库 %d 条，置信分布 %s' % (len(data), dict(Counter(v[1] for v in data.values()))))

@@ -602,6 +602,42 @@ await test('取图: 没抓到本地照的分城键回落到占位图，不借外
   assert.ok(u.startsWith('data:'), '缺图应回落到主题占位图，实际：' + u.slice(0, 60));
 });
 
+// 图集 3 格 = 主图 + 2 张补充图。补充图不足时格子用「实景图加载中…」的渐变
+// 占位顶上 —— 那句话是骗人的，其实没有任何请求在跑。2026-11-17 补过一轮，
+// 有一张补充图的景点从 606 降到 136；这里守住「主图 + 2 补充图 → 3 格全实景」，
+// 同时盯住覆盖面别被后来的重导出悄悄打回去。
+await test('图集: 补满两张实景的景点，3 格不再出现占位渐变', async () => {
+  // normImgUrl 用 location.href 解析相对地址，Node 里没有 location，
+  // 绝对地址会走进 catch 分支被当成空串 —— 不补一个，这个用例只能测到本地图。
+  const hadLoc = 'location' in globalThis;
+  if (!hadLoc) globalThis.location = { href: 'http://127.0.0.1/' };
+  // 主图库与图组库都是懒加载的，浏览器里进景点层前会 await 主图库；
+  // 这里手动等都加载完，否则 getSpotImages 一律返回占位图。
+  await si.loadSpotImages();
+  await si.ensureGallery();
+  const { SPOT_GALLERY_DB } = await import('../js/spot-gallery-db.js');
+  const { SPOT_IMAGES_DB } = await import('../js/spot-images-db.js');
+  const full = Object.keys(SPOT_GALLERY_DB)
+    .filter(k => (SPOT_GALLERY_DB[k] || []).length >= 2 && SPOT_IMAGES_DB[k]);
+  assert.ok(full.length >= 1500,
+    '主图 + 2 张补充图的景点只有 ' + full.length + ' 处，补图成果丢了？');
+
+  const bad = [];
+  try {
+    for (const k of full.slice(0, 40)) {
+      const p = k.split('|');
+      const name = p.length === 3 ? p[2] : k;
+      const imgs = si.getSpotImages(name, p[0] || '', 3, 'park', k);
+      if (imgs.length !== 3 || imgs.some(u => u.startsWith('data:'))) {
+        bad.push(k + ' → ' + imgs.map(u => (u.startsWith('data:') ? '占位' : '实景')).join('/'));
+      }
+    }
+  } finally {
+    if (!hadLoc) delete globalThis.location;    // 别把假 location 留给后面的用例
+  }
+  assert.deepEqual(bad, [], '这些景点的图集仍有占位格');
+});
+
 // ─────────────────────────── 简介分片 ───────────────────────────
 // 简介库按省切成 8 片：列表与详情只下当前省那一片（约 82KB），搜索才拉整库。
 // 分片是派生物，最容易出的错是「源库更新了但分片没重跑」和「省份归错片」——

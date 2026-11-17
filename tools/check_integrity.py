@@ -567,6 +567,29 @@ try:
 except Exception as e:
     problems.append('景点归属校验失败（%s）' % e)
 
+# 18) 图组：data/img_db.json 里补上的图必须已经导出到前端库
+#     补图（tools/fill_gallery_extra.py）只写数据层，导出要另外跑
+#     tools/export_db.py。忘了这一步的话，数据看着补好了，用户点开详情
+#     还是两格占位图 —— 不报错、测试也全绿，只能靠这道闸发现。
+#     只校验"已经导出的键"：重名裸名键等被导出层有意丢弃的条目不算。
+try:
+    _img_db = json.load(io.open(os.path.join(ROOT, 'data', 'img_db.json'), encoding='utf-8'))
+    _not_exported = []
+    for _k, _v in _img_db.items():
+        if _k not in gal:
+            continue
+        _have = {u.rsplit('/', 1)[-1] for u in gal[_k]}
+        for _u in (_v.get('extra') or []):
+            _b = _u.rsplit('/', 1)[-1]
+            if _b not in _have:
+                _not_exported.append('%s → %s' % (_k, _b))
+    if _not_exported:
+        problems.append('图组有 %d 张图只在 data/img_db.json 里、没导出到前端（如 %s）'
+                        '→ python tools/export_db.py'
+                        % (len(_not_exported), _not_exported[0]))
+except Exception as e:
+    problems.append('图组导出校验失败（%s）' % e)
+
 print('检查完成：%d 个问题' % len(problems))
 for p in problems:
     print('  ✗', p)
