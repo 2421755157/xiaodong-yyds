@@ -1,5 +1,9 @@
 export default [
   {
+    // 第三方原样拷入的代码（three.js 及其 addon），不按本站风格改造
+    ignores: ['js/vendor/**'],
+  },
+  {
     files: ['**/*.js', '**/*.mjs'],
     languageOptions: {
       ecmaVersion: 2022,

@@ -10,6 +10,18 @@
 
 const BASE = process.argv[2] || 'http://127.0.0.1:8765/';
 const PORT = process.argv[3] || '9222';
+const ORIGIN = new URL(BASE).origin;
+
+// 外域图片/接口加载失败 ≠ 站点出错。
+// 图组是热链的 360 图床（p*.ssl.qhimgs1.com，按 /dr/720_720_/ 缩放）、小地图是
+// 百度静态图接口，两者在部分网络（含本机）直接连不上，浏览器会往控制台写一条
+// 「Failed to load resource: net::ERR_*」。那是被测环境的网络，不是页面脚本的错；
+// 自有资源（同源）加载失败仍然必须让测试红。
+function isExternalAssetFailure(l) {
+  if (!/Failed to load resource/i.test(l.text || '')) return false;
+  if (!l.url || !/^https?:/i.test(l.url)) return false;
+  try { return new URL(l.url).origin !== ORIGIN; } catch { return false; }
+}
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -236,7 +248,7 @@ function check(name, ok, detail = '') {
   const threeTiming = await cdp.eval(`(() => {
     const rs = performance.getEntriesByType('resource');
     const app = rs.find(r => /\\/js\\/app\\.js$/.test(r.name));
-    const three = rs.find(r => /three\\.module\\.js/.test(r.name));
+    const three = rs.find(r => /three\\.module(?:\\.min)?\\.js/.test(r.name));
     if (!app) return 'no-app-entry';
     if (!three) return 'three-lazy';                       // 还没加载：更彻底的按需
     return three.startTime >= app.responseEnd ? 'after-app' : 'blocking';
@@ -751,17 +763,37 @@ function check(name, ok, detail = '') {
   await cdp.eval("(()=>{const i=document.getElementById('search-input'); i.value=''; i.dispatchEvent(new Event('input',{bubbles:true}));})()");
 
   // 7b) 进入 3D 漫游：场景画布 + 实景看板
+  //     记下进场前的日志位置：这条断言只该量「3D 这一段」，之前图集/小地图
+  //     的外域图片加载失败也留在 logs 里，按全量过滤会把它算成 3D 的错。
+  const sceneLogStart = cdp.logs.length;
   await cdp.eval("document.getElementById('intro-enter').click()");
   await sleep(3500);
   const canvas3d = await cdp.eval("(()=>{const c=document.getElementById('scene-canvas');return c? (c.width+'x'+c.height) : 'none';})()");
   check('3D 场景画布创建', canvas3d !== 'none' && !/^0x/.test(canvas3d), canvas3d);
 
   const threeNow = await cdp.eval(
-    "performance.getEntriesByType('resource').some(r => /three\\.module\\.js/.test(r.name))");
+    "performance.getEntriesByType('resource').some(r => /three\\.module(?:\\.min)?\\.js/.test(r.name))");
   check('进入 3D 后 three 已按需加载', threeNow === true, String(threeNow));
+
+  // 7b-1b) 3D 引擎必须由本站自己发出去，不能依赖第三方 CDN
+  //      以前 importmap 指向 cdn.jsdelivr.net：国内网络下这条链路经常整段超时
+  //      （实测三次探活两次 25s 超时），3D 漫游和全景直接加载失败，连 GitHub
+  //      Pages 上的线上站也一样。这条断言同时守住"没被改回外域"和"同源可取"。
+  const threeOrigin = JSON.parse(await cdp.eval(`(() => {
+    const rs = performance.getEntriesByType('resource');
+    const t = rs.find(r => /three\\.module(?:\\.min)?\\.js/.test(r.name));
+    const cdn = rs.filter(r => /(jsdelivr|unpkg|cdnjs|staticfile)/.test(r.name))
+                  .map(r => r.name.split('/')[2]);
+    return JSON.stringify({ name: t ? t.name : '', cdn: [...new Set(cdn)] });
+  })()`));
+  const sameOrigin = threeOrigin.name.startsWith(BASE.replace(/\/$/, '') + '/js/vendor/three/');
+  check('3D 引擎同源加载，不依赖第三方 CDN',
+    sameOrigin && threeOrigin.cdn.length === 0,
+    `three=${threeOrigin.name.replace(BASE, '/') || '未加载'}，CDN=${threeOrigin.cdn.join(',') || '无'}`);
   const gl = await cdp.eval("(()=>{try{const c=document.getElementById('scene-canvas');return !!(c && (c.getContext('webgl2')||c.getContext('webgl')));}catch(e){return false}})()");
   check('WebGL 上下文可用', gl === true, 'gl=' + gl);
-  const errsInScene = cdp.logs.filter(l => /error|exception/i.test(l.type));
+  const errsInScene = cdp.logs.slice(sceneLogStart)
+    .filter(l => /error|exception/i.test(l.type) && !isExternalAssetFailure(l));
   check('3D 场景无报错', errsInScene.length === 0, errsInScene.length ? errsInScene.slice(0, 2).map(e => (e.text || '').slice(0, 80)).join(' | ') : '干净');
 
   // 7b-2) GPU 资源不累积
@@ -838,10 +870,15 @@ function check(name, ok, detail = '') {
     `贴图 ${mem1 && mem1.textures} → ${mem2 && mem2.textures}`);
 
   // 8) 控制台报错
-  const errs = cdp.logs.filter(l => /error|exception/i.test(l.type));
-  check('无控制台错误', errs.length === 0, errs.length
+  //    分两类看：脚本异常与自有资源加载失败一律红；外域图床/接口（360 图床、
+  //    百度静态图）连不上只作为"环境网络"计数打出来 —— 它们本来就不在站点
+  //    控制范围内，混在一起会让这条闸在弱网环境里天天假红，真错误反而被淹没。
+  const allErrs = cdp.logs.filter(l => /error|exception/i.test(l.type));
+  const extErrs = allErrs.filter(isExternalAssetFailure);
+  const errs = allErrs.filter(l => !isExternalAssetFailure(l));
+  check('无控制台错误（外域资源不可达不计）', errs.length === 0, errs.length
     ? errs.slice(0, 3).map(e => (e.text || '').slice(0, 60) + ' @' + (e.url || '').slice(-60)).join(' | ')
-    : '干净');
+    : '干净' + (extErrs.length ? `（另有 ${extErrs.length} 条外域资源不可达）` : ''));
 
   // 9) 分享链接直达：地址里带景点名，重开页面就该打开这一处
   //    （放在最后，因为这一步会重新加载整个页面）
@@ -1158,7 +1195,7 @@ function check(name, ok, detail = '') {
     const heavy = [];
     if (has(/spot-desc-db\\.js/) || has(/spot-desc-shard-\\d+\\.js/)) heavy.push('简介库');
     if (has(/spot-images-db\\.js/)) heavy.push('景点图库');
-    if (has(/three\\.module\\.js/)) heavy.push('three');
+    if (has(/three\\.module(?:\\.min)?\\.js/)) heavy.push('three');
     if (has(/\\/js\\/scenes\\.js/)) heavy.push('scenes.js');
     if (has(/img\\/cover\\//)) heavy.push('省卡封面图');
     const kb = Math.round(rs.reduce((s, r) => s + (r.transferSize || 0), 0) / 1024);

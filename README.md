@@ -168,7 +168,7 @@
 
 | 资源 | 体积（gzip） | 何时加载 |
 |------|-------------|---------|
-| `three.module.js` + 后期处理 addons | 264 KB | 点「进入 3D 漫游」时；首屏空闲预热 |
+| `three.module.min.js` + 后期处理 addons | 173 KB | 点「进入 3D 漫游」时；首屏空闲预热 |
 | `spot-images-db.js`（1892 处景点封面） | 68 KB | 进入「景点列表」层时；首屏空闲预热 |
 | `region-desc-db.js`（380 条省市简介） | 31 KB | 首屏（省卡直接要显示） |
 | `app.js` + 省市数据 + 其余首屏模块 | 92 KB | 首屏 |
@@ -182,15 +182,17 @@
   而前者是首屏就要用的。拆出零依赖的 `scenes-meta.js` 后，首屏不必为 4 行映射付 257 KB。
 - **按需 + 空闲预热**：用 `requestIdleCallback` 在首屏渲染完后偷偷下好，
   用户真点进去时通常已就绪，既不占关键路径也不会干等。
-- **加载失败可重试**：three 走 CDN，断网/被拦时 `ensureRenderer` 会清空缓存允许重试，
-  并给出「3D 引擎加载失败」的明确提示，而不是白屏。
+- **加载失败可重试**：three 与所需 addon 原样自托管在 `js/vendor/three/`（importmap 指向本地，
+  不经任何 CDN）。国内网络下 jsdelivr 常整段超时，以前会出现「3D 打不开、连线上站也一样」；
+  现在只要页面本身能打开，3D 与全景的引擎就一定拿得到。真失败时 `ensureRenderer` 会清空
+  缓存允许重试，并给出「3D 引擎加载失败」的明确提示，而不是白屏。
 
 ## 技术栈
 
 | 类别 | 技术 |
 |------|------|
 | 3D 渲染 | Three.js 0.164.1 + EffectComposer + UnrealBloom |
-| 模块系统 | ES Modules + Import Map（CDN 加载） |
+| 模块系统 | ES Modules + Import Map（three 自托管于 `js/vendor/`，不依赖 CDN） |
 | 数据存储 | localStorage（纯前端，无后端） |
 | 图片来源 | 百度百科词条图 + 360 图搜（构建期抓取，下载到仓库本地托管） |
 | 文字来源 | 百度百科摘要 + 中文维基百科词条首段（`variant=zh-cn` 转简体，构建期抓取） |
@@ -288,6 +290,7 @@ node   tools/fetch_baike.mjs --all           # 百科 HTML 通道（需无头浏
 │   ├── coords-db.js        # 景点坐标库（773 条，WGS84）
 │   ├── panorama-db.js      # 真实全景图库（102 条）
 │   ├── poiid-db.js         # 百度 POI 检索结果（需开通地点检索后填充）
+│   ├── vendor/three/       # 自托管的 three（内核 + 3 个后期处理 addon，importmap 指向这里）
 │   └── data/           # 分区域存放的省市景点数据
 ├── img/baike/          # 景点主图（百度百科来源，本地托管，同源无防盗链）
 ├── tools/              # 数据抓取管线（Python + Node，详见 tools/README.md）

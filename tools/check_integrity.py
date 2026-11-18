@@ -630,6 +630,45 @@ try:
 except Exception as e:
     problems.append('全景库键规则校验失败（%s）' % e)
 
+# 20) 3D 引擎（three）必须自托管：importmap 指向本地文件且依赖闭合
+#     以前 importmap 直接指向 cdn.jsdelivr.net。国内网络下这条链路经常整段超时，
+#     于是「打开 3D 漫游」只剩一句加载失败，连报错都看不懂；连 GitHub Pages 上
+#     的线上站点也一样挂。现在 three 与三个 addon 原样拷进 js/vendor/three/，
+#     这里校验：importmap 不许再出现外域地址、映射到的文件真的存在、
+#     addon 的相对依赖都能落地（少拷一个文件只有运行时才炸）。
+try:
+    im = re.search(r'<script type="importmap">\s*(\{.*?\})\s*</script>', html, re.S)
+    if not im:
+        problems.append('index.html 找不到 importmap —— 3D 与全景的裸包名都没法解析')
+    else:
+        imap = json.loads(im.group(1)).get('imports', {})
+        for _name, _target in imap.items():
+            if re.match(r'^(https?:)?//', _target):
+                problems.append('importmap 里 %s 还指向外域 %s —— 断网/被墙时 3D 全废'
+                                '→ 放到 js/vendor/three/ 下'
+                                % (_name, _target[:40]))
+                continue
+            _p = os.path.normpath(os.path.join(ROOT, _target))
+            if not os.path.exists(_p):
+                problems.append('importmap 里 %s → %s 文件不存在（3D 会静默加载失败）'
+                                % (_name, _target))
+        # addon 的相对依赖闭合性：addon 之间互相 import，漏拷一个就整条链断
+        _addon_root = os.path.join(ROOT, 'js', 'vendor', 'three', 'addons')
+        if os.path.isdir(_addon_root):
+            for _root, _dirs, _files in os.walk(_addon_root):
+                for _f in _files:
+                    if not _f.endswith('.js'):
+                        continue
+                    _fp = os.path.join(_root, _f)
+                    _src = io.open(_fp, encoding='utf-8').read()
+                    for _m in re.finditer(r"""from\s*['"](\.{1,2}/[^'"]+)['"]""", _src):
+                        _dep = os.path.normpath(os.path.join(_root, _m.group(1)))
+                        if not os.path.exists(_dep):
+                            problems.append('three addon %s 依赖的 %s 没拷进来'
+                                            % (_f, _m.group(1)))
+except Exception as e:
+    problems.append('importmap / three 自托管校验失败（%s）' % e)
+
 print('检查完成：%d 个问题' % len(problems))
 for p in problems:
     print('  ✗', p)
