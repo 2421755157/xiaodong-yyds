@@ -433,6 +433,52 @@ await test('简介库: 分城条目讲的是本地那一处', async () => {
     assert.ok(!txt.includes(other), city + name + ' 的简介不该提到' + other);
   }
 });
+// 简介库长期混进过三类「压根不是这处景点」的正文，它们的共同点是不提地名，
+// 地域校验直接放行，只能按特征扫：
+//   站点模板  「百度百科是一部内容开放…」（整段没有一个字的景点信息）
+//   物种词条  「鸽子窝（学名：Sorghum bicolor）是禾本科高粱属中国高粱的变种」
+//   作品词条  「《月河》，1961 年…的歌曲」「智取威虎山是…京剧剧目」
+await test('简介库: 没有站点模板、物种词条与同名作品', async () => {
+  const { SPOT_DESC_DB } = await import('../js/spot-desc-db.js');
+  const WORK = ['图书', '电视剧', '电影', '歌曲', '评书', '小说', '专辑', '游戏',
+    '漫画', '动画', '纪录片', '话剧', '京剧', '歌剧', '舞剧', '音乐剧',
+    '诗歌', '绝句', '期刊', '苑刊', '杂志', '剧目', '执导', '主演', '出版的'];
+  const bad = [];
+  for (const [k, txt] of Object.entries(SPOT_DESC_DB)) {
+    if (txt.slice(0, 200).includes('百度百科是一部内容开放')) bad.push(k + '(站点模板)');
+    else if (/[（(]\s*学名/.test(txt.slice(0, 80))) bad.push(k + '(物种)');
+    else if (WORK.some(w => txt.slice(0, 40).includes(w))) bad.push(k + '(作品)');
+  }
+  assert.deepEqual(bad, [], '这些简介讲的是别的事物：' + bad.slice(0, 5).join('、'));
+});
+
+// 「灵山县，广西壮族自治区钦州市辖县」曾挂在上饶灵山下面、桂林尧山挂在平顶山尧山下面：
+// 自治区全称中间夹着民族名（广西壮族/宁夏回族/新疆维吾尔），旧的
+// 「广西 + 省|市|自治区」正则整条失效，等于三个自治区完全不设防。
+await test('简介库: 自治区全称也算外地名', async () => {
+  const { SPOT_DESC_DB } = await import('../js/spot-desc-db.js');
+  const RIVAL = ['广西壮族自治区', '宁夏回族自治区', '新疆维吾尔自治区', '西藏自治区'];
+  const cases = [['灵山', '上饶'], ['尧山', '平顶山'], ['金银滩', '海北']];
+  for (const [name, city] of cases) {
+    const txt = SPOT_DESC_DB[name] || '';
+    for (const r of RIVAL) {
+      assert.ok(!txt.includes(r),
+        name + '（' + city + '）又挂上了讲 ' + r + ' 的正文：' + txt.slice(0, 30));
+    }
+  }
+});
+
+// 反向保护：这三条都是本地的正经词条，靠「作品词」判会误杀，
+// 只有带地名印证才留得住 —— 改规则时别把它们一起扫掉。
+await test('简介库: 本地实景演出与碑刻不被当成同名作品', async () => {
+  const { SPOT_DESC_DB } = await import('../js/spot-desc-db.js');
+  const cases = [['封禅大典', '泰山'], ['印象刘三姐', '漓江'], ['西峡颂', '成县']];
+  for (const [name, word] of cases) {
+    const txt = SPOT_DESC_DB[name] || '';
+    assert.ok(txt.includes(word), name + ' 的正文丢了：' + txt.slice(0, 30));
+  }
+});
+
 await test('坐标库: 重名景点不残留裸名键', async () => {
   const { COORD_DB } = await import('../js/coords-db.js');
   const cnt = {};

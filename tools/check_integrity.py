@@ -296,14 +296,16 @@ try:
 except Exception as e:
     problems.append('坐标库校验失败（%s）' % e)
 
-# 11) 简介库：外地词条不得挂在本市景点上
+# 11) 简介库：挂上来的这条正文必须真在讲这处景点
 #     泛名景点的词条标题完全对得上，正文却是别处的（「长岛」是纽约长岛、
 #     「铁塔」是济宁崇觉寺铁塔、「天河山」是加拿大一位政治人物）。
 #     页面上就是「山东烟台的景点，简介在讲美国长岛」，比没有简介更糟。
-#     判定规则见 tools/place_guard.py，抓取管线用的是同一份。
+#     后来发现还有两类「真空通过」地域校验的：站点模板文字（「百度百科是一部…」）
+#     和同名别类事物（鸽子窝是高粱变种、《月河》是歌曲、灵山县在广西）。
+#     判定规则见 tools/place_guard.py 的 desc_reject，抓取管线用的是同一份。
 try:
     sys.path.insert(0, os.path.join(ROOT, 'tools'))
-    from place_guard import mismatch                      # noqa: E402
+    from place_guard import desc_reject                     # noqa: E402
     sd_src = io.open(os.path.join(JS, 'spot-desc-db.js'), encoding='utf-8').read()
     sd_head = sd_src.index('export const SPOT_DESC_DB')
     desc_db = json.loads(sd_src[sd_src.index('{', sd_head):sd_src.rindex('}') + 1])
@@ -319,11 +321,11 @@ try:
         txt = desc_db.get(key)
         if not txt:
             continue
-        why = mismatch(txt, s.get('city', ''), s.get('prov', ''))
+        why = desc_reject(txt, s.get('city', ''), s.get('prov', ''))
         if why:
             misplaced.append('%s %s/%s（%s）' % (s['name'], s['prov'], s['city'], why))
     if misplaced:
-        problems.append('简介与景点所在城市不符 %d 条（如 %s）→ 见 tools/place_guard.py'
+        problems.append('简介讲的不是这处景点 %d 条（如 %s）→ 见 tools/place_guard.py 的 desc_reject'
                         % (len(misplaced), '；'.join(misplaced[:2])))
     blocked = json.load(io.open(os.path.join(ROOT, 'data', 'desc_block.json'),
                                 encoding='utf-8'))

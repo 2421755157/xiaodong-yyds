@@ -23,7 +23,7 @@ from concurrent.futures import ThreadPoolExecutor
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from common import (DATA, JS, ZHW, clean_text, dup_names, get_json, is_disambig,
                     js_export, load_json, save_json, search_title, spot_key)
-from place_guard import mismatch
+from place_guard import desc_reject
 
 SPOT_CACHE = os.path.join(DATA, 'desc_db.json')
 REGION_CACHE = os.path.join(DATA, 'region_db.json')
@@ -184,12 +184,13 @@ def locate_title(name, city, prov):
 def desc_ok(text, name, city, prov):
     """这段首段能不能挂到这个景点下面。
 
-    三道关：不是消歧义页、不是同名作品/机构、讲的地域确实是本市这一处
-    （最后一条见 place_guard）。泛名景点（长岛 / 铁塔 / 大峡谷）栽在第三条上。
+    三道关：不是消歧义页、不是同名作品/机构、（place_guard.desc_reject）
+    正文讲的确实是本市这一处 —— 泛名景点（长岛 / 铁塔 / 大峡谷）栽在最后一条上。
+    站点模板文字与物种词条也在 desc_reject 里，与 check_integrity 用的是同一份。
     """
-    if not text or is_disambig(text) or off_topic(text, name):
+    if not text or off_topic(text, name):
         return False
-    return mismatch(text, city, prov) is None
+    return desc_reject(text, city, prov) is None
 
 
 def locate_scoped(name, city, prov):
@@ -287,17 +288,20 @@ def do_spots(limit):
     # 库里已有的「讲的不是这一处」的条目先剔掉：它们留在缓存里，导出就会把
     # 外地那段话挂在本市景点上（邢台的景点写着加拿大政客）。剔掉后这些景点
     # 重新进入待查队列，本轮会按「城市+名」重找一次；找不到就回退手写文案。
+    # 用 desc_reject 而不是 mismatch：老条目是更早的管线抓的，当年只校验了地域，
+    # 于是「百度百科是一部内容开放…」「鸽子窝是高粱变种」「《月河》是歌曲」
+    # 这类正文一直躺在库里 —— 它们是「真空通过」地域校验的，只有整道闸才能捞出来。
     wrong = []
     for k in list(db):
         s = by_key.get(k)
         if not s:
             continue
-        reason = mismatch(db[k][0], s.get('city', ''), s.get('prov', ''))
+        reason = desc_reject(db[k][0], s.get('city', ''), s.get('prov', ''))
         if reason:
             wrong.append((k, s['name'], reason))
             db.pop(k)
     if wrong:
-        print('清理地域错位简介 %d 条（改按城市重查）' % len(wrong), flush=True)
+        print('清理不合格简介 %d 条（改按城市重查）' % len(wrong), flush=True)
         for k, n, reason in wrong[:8]:
             print('   · %s：%s' % (n, reason), flush=True)
 
