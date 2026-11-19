@@ -23,6 +23,18 @@ function isExternalAssetFailure(l) {
   try { return new URL(l.url).origin !== ORIGIN; } catch { return false; }
 }
 
+// 浏览器扩展自己的日志也不属于站点。无头实例里装了扩展（或被宿主注入）时，
+// 扩展重载/卸载会让它抛 "Extension context invalidated."，扩展包内字体取不到
+// 又会在控制台写一条 ERR_FILE_NOT_FOUND（URL 是 chrome-extension://…）。
+// 这些既不是页面脚本的错，站点也无从修复，却会让「无控制台错误」随扩展状态
+// 随机变红。按来源剔除，并在结果里把剔除条数报出来，避免把真错误也藏掉 —
+// 判据只看 chrome-extension:// 来源与那条固定的失效文案，不放宽 script error。
+function isExtensionNoise(l) {
+  const s = (l.url || '') + ' ' + (l.text || '');
+  return /(?:chrome|edge|moz)-extension:\/\//i.test(s)
+    || /Extension context invalidated/i.test(s);
+}
+
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 // 轮询等待条件成立。固定 sleep 会随机器负载偶发失败（搜索出结果、图片解码
@@ -851,7 +863,7 @@ function check(name, ok, detail = '') {
   const gl = await cdp.eval("(()=>{try{const c=document.getElementById('scene-canvas');return !!(c && (c.getContext('webgl2')||c.getContext('webgl')));}catch(e){return false}})()");
   check('WebGL 上下文可用', gl === true, 'gl=' + gl);
   const errsInScene = cdp.logs.slice(sceneLogStart)
-    .filter(l => /error|exception/i.test(l.type) && !isExternalAssetFailure(l));
+    .filter(l => /error|exception/i.test(l.type) && !isExternalAssetFailure(l) && !isExtensionNoise(l));
   check('3D 场景无报错', errsInScene.length === 0, errsInScene.length ? errsInScene.slice(0, 2).map(e => (e.text || '').slice(0, 80)).join(' | ') : '干净');
 
   // 7b-2) GPU 资源不累积
@@ -928,15 +940,21 @@ function check(name, ok, detail = '') {
     `贴图 ${mem1 && mem1.textures} → ${mem2 && mem2.textures}`);
 
   // 8) 控制台报错
-  //    分两类看：脚本异常与自有资源加载失败一律红；外域图床/接口（360 图床、
+  //    分三类看：脚本异常与自有资源加载失败一律红；外域图床/接口（360 图床、
   //    百度静态图）连不上只作为"环境网络"计数打出来 —— 它们本来就不在站点
   //    控制范围内，混在一起会让这条闸在弱网环境里天天假红，真错误反而被淹没。
+  //    浏览器扩展的报错同理单独计数，不能算到站点头上。
   const allErrs = cdp.logs.filter(l => /error|exception/i.test(l.type));
   const extErrs = allErrs.filter(isExternalAssetFailure);
-  const errs = allErrs.filter(l => !isExternalAssetFailure(l));
-  check('无控制台错误（外域资源不可达不计）', errs.length === 0, errs.length
+  const extNoise = allErrs.filter(l => !isExternalAssetFailure(l) && isExtensionNoise(l));
+  const errs = allErrs.filter(l => !isExternalAssetFailure(l) && !isExtensionNoise(l));
+  const aside = [
+    extErrs.length ? `${extErrs.length} 条外域资源不可达` : '',
+    extNoise.length ? `${extNoise.length} 条浏览器扩展噪声` : '',
+  ].filter(Boolean).join('、');
+  check('无控制台错误（外域资源与扩展噪声不计）', errs.length === 0, errs.length
     ? errs.slice(0, 3).map(e => (e.text || '').slice(0, 60) + ' @' + (e.url || '').slice(-60)).join(' | ')
-    : '干净' + (extErrs.length ? `（另有 ${extErrs.length} 条外域资源不可达）` : ''));
+    : '干净' + (aside ? `（另有 ${aside}）` : ''));
 
   // 9) 分享链接直达：地址里带景点名，重开页面就该打开这一处
   //    （放在最后，因为这一步会重新加载整个页面）
@@ -1109,18 +1127,33 @@ function check(name, ok, detail = '') {
     mapReqSeen === reqBeforeSecond, '新增请求 ' + (mapReqSeen - reqBeforeSecond) + ' 次');
 
   // 9e-4) 降级稿必须有「重新加载底图」：网络恢复（或换了域名/白名单修好）后
-  //       不用刷新整页。点一下要真发请求，成功则把图框和档位按钮一起恢复。
+  //       不用刷新整页。点一下要真重载，成功则把图框和档位按钮一起恢复。
+  //
+  // ⚠ 别把"重载"等同于"发网络请求"：同一个 URL 之前已经成功解码过时，浏览器
+  //   直接拿解码缓存铺图（Network.setCacheDisabled 只关 HTTP 缓存，管不到文档内
+  //   的图像解码缓存），此时不会出现 Fetch.requestPaused，请求计数是 0；
+  //   而接口不可达的环境里图片缓存不下来，重试必然发请求并再次失败。
+  //   两种网络状态下都成立的口径是：要么有新请求，要么图真的解码出来了 —— 且
+  //   (a) 解码后的自然尺寸必须不同于点击前（降级态是 0x0），否则等于没重载；
+  //   (b) 铺出来的必须是**这一处**景点的小地图，不能留上一处的旧图。
   const retryShown = await cdp.eval(
     "(()=>{const b=document.getElementById('map-retry');return !!b && !b.hidden;})()");
+  const beforeRetry = await readMap();
   const reqBeforeRetry = mapReqSeen;
   await cdp.eval("(()=>{const b=document.getElementById('map-retry'); if(b) b.click(); return 1})()");
   const retried = await waitFor(async () => {
     const s = await readMap();
     return (mapDecoded(s) || s.failShown) ? s : 0;
   }, 12000);
-  check('降级态有「重新加载底图」且点击后真发请求',
-    retryShown === true && mapReqSeen > reqBeforeRetry,
-    '按钮可见=' + retryShown + ' 新请求=' + (mapReqSeen - reqBeforeRetry) + ' 次');
+  const retryReq = mapReqSeen - reqBeforeRetry;
+  const retryDecoded = !!retried && mapDecoded(retried) && retried.nat !== beforeRetry.nat;
+  // 杭州西湖坐标 120.141667,30.245833（与上面 9e 的 hzHomeNear 同一处）
+  const retrySameSpot = retryDecoded ? retried.src.indexOf('120.141667') >= 0 : true;
+  check('降级态有「重新加载底图」且点击后确实重载',
+    retryShown === true && (retryReq > 0 || (retryDecoded && retrySameSpot)),
+    '按钮可见=' + retryShown + ' 网络请求=' + retryReq + ' 次'
+      + (retryDecoded ? '，解码恢复 ' + beforeRetry.nat + '→' + retried.nat
+        + (retrySameSpot ? '（本景点）' : '（坐标不是本景点！）') : ''));
   check('重试成功则图框与档位按钮恢复',
     !!retried && (!mapDecoded(retried) || (retried.frameHidden === false && retried.liveBtns > 0)),
     retried ? (mapDecoded(retried) ? '已恢复 ' + retried.nat : '接口仍不通，保持降级')
