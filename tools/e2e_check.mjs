@@ -67,7 +67,7 @@ async function getTarget() {
 }
 
 class CDP {
-  constructor(ws) { this.ws = ws; this.id = 0; this.pending = new Map(); this.logs = []; this.waiters = []; }
+  constructor(ws) { this.ws = ws; this.id = 0; this.pending = new Map(); this.logs = []; this.waiters = []; this.mapResponses = []; }
   static async connect(url) {
     const ws = new WebSocket(url);
     await new Promise((res, rej) => { ws.onopen = res; ws.onerror = rej; });
@@ -85,6 +85,11 @@ class CDP {
       } else if (m.method === 'Log.entryAdded') {
         const e = m.params.entry;
         c.logs.push({ type: e.level, text: e.text, url: e.url || '' });
+      } else if (m.method === 'Network.responseReceived'
+        && /api\.map\.baidu\.com/.test(m.params.response.url || '')) {
+        // 静态图接口这次到底有没有回话。用来判定"降级"是环境拦住了，
+        // 还是接口明明回了 200 却没把图显示出来（后者必须算失败）。
+        c.mapResponses.push(m.params.response.status);
       } else if (m.method === 'Fetch.requestPaused' && c.onFetch) {
         c.onFetch(m.params);
       } else if (m.method) {
@@ -185,9 +190,13 @@ function check(name, ok, detail = '') {
   });
   let longBlockIdx = null;   // 要掐断的分片号（掐一次后自动清空）
   let longBlockHits = 0;
+  let mapBlockOnce = false;  // 掐断一次静态图请求，验证"接口被拦"时的降级
+  let mapBlockHits = 0;
+  let mapReqSeen = 0;        // 底图请求次数（含被掐断的），用来验证"不重复发"与"重试真发"
   cdp.onFetch = async (params) => {
     try {
       const url = params.request.url || '';
+      if (/api\.map\.baidu\.com/.test(url)) mapReqSeen++;
       const lm = url.match(/long-db-(\d+)\.js/);
       if (lm) {
         if (longBlockIdx !== null && Number(lm[1]) === longBlockIdx) {
@@ -199,6 +208,15 @@ function check(name, ok, detail = '') {
           return;
         }
         await cdp.send('Fetch.continueRequest', { requestId: params.requestId });
+        return;
+      }
+      if (/api\.map\.baidu\.com/.test(url) && mapBlockOnce) {
+        mapBlockOnce = false;   // 只掐一次：验证降级后还要能恢复
+        mapBlockHits++;
+        await cdp.send('Fetch.failRequest', {
+          requestId: params.requestId,
+          errorReason: 'ConnectionReset',
+        });
         return;
       }
       await cdp.send('Fetch.continueRequest', {
@@ -554,22 +572,62 @@ function check(name, ok, detail = '') {
   }
 
   // 5d) 位置小地图（百度静态图）
-  await sleep(1500);
-  const mapVisible = await cdp.eval("!document.getElementById('intro-map').hidden");
-  check('位置小地图显示', mapVisible === true, 'hidden=' + mapVisible);
-  if (mapVisible) {
-    const mapImg = await cdp.eval("(()=>{const i=document.getElementById('map-img');return i?(i.naturalWidth+'x'+i.naturalHeight):'none';})()");
-    check('静态图已加载', mapImg !== 'none' && !/^0x/.test(mapImg), mapImg);
+  //     底图是第三方接口：AK 带 Referer 白名单、国内网络还可能直接拦。
+  //     接口挂住时 <img> 既不触发 load 也不触发 error（2026-11-18 实测：请求发出后
+  //     一直没有响应），所以这里断言的是「不空转」——要么真图解码出来，要么
+  //     明确降级并保住不依赖静态图的「在百度地图打开」。留一块空白框 + 点不动的
+  //     档位按钮算失败。接口回话却没显示图同样算失败（用 mapResponses 判定）。
+  const readMap = async () => JSON.parse(await cdp.eval(`(() => {
+    const box = document.getElementById('intro-map');
+    const frame = document.getElementById('map-frame');
+    const fail = document.getElementById('map-fail');
+    const img = document.getElementById('map-img');
+    const btns = [...document.querySelectorAll('#intro-map button')]
+      .filter(b => /^map-view-/.test(b.id));
+    return JSON.stringify({
+      hidden: !box || box.hidden,
+      frameHidden: !frame || frame.hidden,
+      failShown: !!fail && !fail.hidden,
+      failText: (fail || {}).textContent || '',
+      nat: img ? (img.naturalWidth + 'x' + img.naturalHeight) : 'none',
+      src: img ? img.src : '',
+      liveBtns: btns.filter(b => !b.hidden).length,
+      link: (document.getElementById('map-open') || {}).href || '',
+    });
+  })()`));
+  const mapDecoded = s => !!s && /^[1-9]\d*x[1-9]/.test(s.nat);
+  // 等"图解码出来"或"降级说明出现"；两者都没等到才是空转（超时 6s + 余量）
+  const mapState = await waitFor(async () => {
+    const s = await readMap();
+    return (!s.hidden && (mapDecoded(s) || s.failShown)) ? s : 0;
+  }, 14000);
+  check('位置小地图不空转（真图或明确降级）', !!mapState,
+    !mapState ? '区块一直挂在空白框上'
+      : mapDecoded(mapState) ? '已解码 ' + mapState.nat
+        : '已降级：' + mapState.failText.slice(0, 22));
+  // 接口这次回了 200，就必须真把图画出来 —— 防止用"降级"掩盖加载逻辑坏了
+  const mapApiHit = cdp.mapResponses.includes(200);
+  check('底图接口回话时必须显示真图', !mapApiHit || mapDecoded(mapState),
+    mapApiHit ? '接口 200，图 ' + (mapState ? mapState.nat : 'none') : '接口未回话（环境拦截）');
+  check('位置区块始终给出可用地图出口',
+    !!mapState && /api\.map\.baidu\.com\/marker/.test(mapState.link),
+    mapState ? (mapState.link ? '有' : '无') : '—');
+  if (mapDecoded(mapState)) {
     // 视野档位切换：街区 → 全域（静态图接口没有图层参数，只能切 zoom）
-    const before = await cdp.eval("(document.getElementById('map-img')||{}).src || ''");
+    const before = mapState.src;
     await cdp.eval("(()=>{document.getElementById('map-view-city').click();return 1})()");
-    await sleep(2000);
+    await sleep(2500);
     const after = await cdp.eval("(document.getElementById('map-img')||{}).src || ''");
     check('视野档位切换生效', after !== before && after.includes('zoom=11'), after.slice(-48));
     const mapImg2 = await cdp.eval("(()=>{const i=document.getElementById('map-img');return i?(i.naturalWidth+'x'+i.naturalHeight):'none';})()");
     check('全域图已加载', mapImg2 !== 'none' && !/^0x/.test(mapImg2), mapImg2);
     const mapHref = await cdp.eval("(document.getElementById('map-open')||{}).href || ''");
     check('百度地图跳转链接', mapHref.includes('api.map.baidu.com/marker'), mapHref ? '有' : '无');
+  } else if (mapState) {
+    // 降级态：图框和档位按钮必须收起（点了没反应的按钮比没有更糟）
+    check('降级时收起图框与视野按钮',
+      mapState.frameHidden === true && mapState.liveBtns === 0,
+      '图框隐藏=' + mapState.frameHidden + ' 残留按钮=' + mapState.liveBtns);
   }
 
   // 5e) 实景街景按钮：服务未开通时必须隐藏，不能显示一个点了必炸的按钮
@@ -973,7 +1031,7 @@ function check(name, ok, detail = '') {
     const raw = await cdp.eval(`(() => {
       const box = document.getElementById('intro-map');
       const img = document.getElementById('map-img');
-      const src = (img && img.src) || '';
+      const src = (img && (img.getAttribute('data-src') || img.src)) || '';
       let loc = null;
       try { loc = new URL(src).searchParams.get('location'); } catch (e) { loc = null; }
       const xy = loc ? loc.split(',').map(Number) : null;
@@ -997,6 +1055,76 @@ function check(name, ok, detail = '') {
   check('杭州西湖的小地图落在杭州',
     hzHome.name === '西湖' && !!hzHomeNear,
     hzHomeMap.hidden ? '小地图未显示' : 'location=' + String(hzHomeMap.loc));
+
+  // 9e-2) 底图接口被拦时必须降级，不能留一块空白框 + 点不动的档位按钮
+  //       用 Fetch 掐断一次静态图请求（模拟国内网络拦 api.map.baidu.com 或
+  //       AK 白名单对不上新域名）。降级后「在百度地图打开」必须还在 ——
+  //       那条链接不走静态图接口，是这种情况下唯一还有用的出口。
+  //       这条在任何网络环境下都可复现，不依赖接口到底通不通。
+  mapBlockOnce = true;
+  // 只改 hash，不整页导航：hash 只差片段时不会触发 load 事件，
+  // 走 cdp.navigate 会白等 20s 超时。这里直接改地址，让路由自己开详情。
+  const bjHash = '#/' + encodeURIComponent('北京') + '/'
+    + encodeURIComponent('北京') + '/' + encodeURIComponent('故宫');
+  await cdp.eval(`location.hash = ${JSON.stringify(bjHash)}`);
+  await waitFor(async () => (await cdp.eval(
+    "(document.getElementById('intro-name')||{}).textContent || ''")) === '故宫', 8000);
+  const blocked = await waitFor(async () => {
+    const s = await readMap();
+    return (!s.hidden && s.failShown) ? s : 0;
+  }, 12000);
+  // 若前面的失败记忆还在（5 分钟内），区块会直接降级、请求根本没发出去，
+  // 那样"被掐断"这条路径就没被真正验证。点一次重试，让请求真的发出去再掐断。
+  if (mapBlockHits === 0) {
+    await cdp.eval("(()=>{const b=document.getElementById('map-retry'); if(b && !b.hidden) b.click(); return 1})()");
+    await waitFor(async () => (await readMap()).failShown, 12000);
+  }
+  check('底图被掐断时明确降级（不留空白框）',
+    !!blocked && blocked.frameHidden === true && blocked.liveBtns === 0 && mapBlockHits === 1,
+    !blocked ? '等不到降级说明（区块仍空转）'
+      : '图框隐藏=' + blocked.frameHidden + ' 残留按钮=' + blocked.liveBtns
+        + ' 掐断=' + mapBlockHits + ' 次');
+  check('降级后仍留有可用的地图出口',
+    !!blocked && /api\.map\.baidu\.com\/marker/.test(blocked.link),
+    blocked ? (blocked.link ? '有' : '无') : '—');
+
+  // 9e-3) 接口不可用的结论要在本会话里复用：AK 白名单对不上是全局性的，
+  //       如果每换一处景点都重新等 6 秒超时，连着看几处就是一片空白骨架屏。
+  //       降级后再开一处有坐标的景点，必须秒降级、且不再白发一次请求。
+  const reqBeforeSecond = mapReqSeen;
+  const t0 = Date.now();
+  const hzHash2 = '#/' + encodeURIComponent('浙江') + '/'
+    + encodeURIComponent('杭州') + '/' + encodeURIComponent('西湖');
+  await cdp.eval(`location.hash = ${JSON.stringify(hzHash2)}`);
+  await waitFor(async () => (await cdp.eval(
+    "(document.getElementById('intro-name')||{}).textContent || ''")) === '西湖', 8000);
+  const blocked2 = await waitFor(async () => {
+    const s = await readMap();
+    return (!s.hidden && s.failShown) ? s : 0;
+  }, 9000);
+  const waitMs = Date.now() - t0;
+  check('已知接口不可用时立即降级（不再每处空等 6 秒）',
+    !!blocked2 && waitMs < 4500, '耗时 ' + waitMs + 'ms（超时阈值 6000ms）');
+  check('降级态不再重复发注定失败的底图请求',
+    mapReqSeen === reqBeforeSecond, '新增请求 ' + (mapReqSeen - reqBeforeSecond) + ' 次');
+
+  // 9e-4) 降级稿必须有「重新加载底图」：网络恢复（或换了域名/白名单修好）后
+  //       不用刷新整页。点一下要真发请求，成功则把图框和档位按钮一起恢复。
+  const retryShown = await cdp.eval(
+    "(()=>{const b=document.getElementById('map-retry');return !!b && !b.hidden;})()");
+  const reqBeforeRetry = mapReqSeen;
+  await cdp.eval("(()=>{const b=document.getElementById('map-retry'); if(b) b.click(); return 1})()");
+  const retried = await waitFor(async () => {
+    const s = await readMap();
+    return (mapDecoded(s) || s.failShown) ? s : 0;
+  }, 12000);
+  check('降级态有「重新加载底图」且点击后真发请求',
+    retryShown === true && mapReqSeen > reqBeforeRetry,
+    '按钮可见=' + retryShown + ' 新请求=' + (mapReqSeen - reqBeforeRetry) + ' 次');
+  check('重试成功则图框与档位按钮恢复',
+    !!retried && (!mapDecoded(retried) || (retried.frameHidden === false && retried.liveBtns > 0)),
+    retried ? (mapDecoded(retried) ? '已恢复 ' + retried.nat : '接口仍不通，保持降级')
+      : '重试后一直空转');
 
   // 9f) 重名景点的封面不能串城
   //     图片库和简介库一样，长期只按景点名做键：惠州西湖的封面其实是杭州西湖，

@@ -179,7 +179,9 @@
       <div class="intro-meta" id="intro-meta"></div>
       <div class="intro-map" id="intro-map" hidden>
         <div class="map-head"><span class="hist-dot"></span><span>位置 · 在城里的方位</span></div>
-        <div class="map-frame"><img id="map-img" alt="景点位置图"></div>
+        <div class="map-frame" id="map-frame"><img id="map-img" alt="景点位置图"></div>
+        <p class="map-fail" id="map-fail" role="status" hidden>底图暂时加载不出来（网络受限或接口被拦），可用下方「在百度地图打开」查看位置。</p>
+        <button class="map-btn map-retry" id="map-retry" type="button" hidden>重新加载底图</button>
         <div class="map-actions">
           <button class="map-btn on" id="map-view-block">街区</button>
           <button class="map-btn" id="map-view-area">城区</button>

@@ -818,24 +818,90 @@ async function renderStreetBtn(spot) {
 // 静态图接口没有图层参数（maptype 会被静默忽略），但缩放级别是真的能切，
 // 而且对"景点在城里的方位"很有用：街区 → 城区 → 全域。
 let mapViewKey = 'block';
+
+// 底图最长等待时间。静态图接口在三种常见情况下会**挂着不返回也不报错**：
+// 域名被网络拦、AK 的 Referer 白名单对不上当前域名、接口超时无响应。
+// 那种时候 <img> 既不 load 也不 error —— 区块就永远是一块微光空板，三个视野按钮
+// 点了也没反应（换 src 后新请求一样挂住），而且每次切换景点都重跑一遍。
+// 到点必须明确降级：收起图框与"只对图有意义"的档位按钮，把「在百度地图打开」
+// 这条不依赖静态图接口的出口留给用户。
+const MAP_TIMEOUT = 6000;
+// 降级结论复用多久：AK 白名单对不上是全局性的，连着看几处景点不该每处都等 6 秒；
+// 但用户可能换网/白名单刚修好，所以过期后要自动再试一次，不能记一整个会话。
+const MAP_DOWN_TTL = 5 * 60 * 1000;
+let mapTimer = 0;
+let mapDownAt = 0;
+function stopMapTimer() {
+  if (mapTimer) { clearTimeout(mapTimer); mapTimer = 0; }
+}
+const mapIsDown = () => mapDownAt > 0 && Date.now() - mapDownAt < MAP_DOWN_TTL;
+
 function renderStaticMap(spot, coord) {
   const box = $('#intro-map');
   const img = $('#map-img');
+  const frame = $('#map-frame');
+  const fail = $('#map-fail');
+  const retry = $('#map-retry');
   if (!box || !img) return;
+  stopMapTimer();
   if (!hasStaticMap() || !coord) { box.hidden = true; return; }
   box.hidden = false;
+
+  const viewBtns = MAP_VIEWS.map(v => $('#map-view-' + v.key)).filter(Boolean);
+  const showMap = () => {
+    stopMapTimer();
+    mapDownAt = 0;
+    img.classList.remove('skel');
+    if (frame) frame.hidden = false;
+    if (fail) fail.hidden = true;
+    if (retry) retry.hidden = true;
+    viewBtns.forEach(b => { b.hidden = false; });
+  };
+  const showFail = (remember = true) => {
+    stopMapTimer();
+    if (remember) mapDownAt = Date.now();
+    img.classList.remove('skel');       // 别让骨架微光停在"加载中"的样子
+    if (frame) frame.hidden = true;
+    if (fail) fail.hidden = false;
+    if (retry) retry.hidden = false;
+    viewBtns.forEach(b => { b.hidden = true; });
+  };
+  // 用属性赋值而不是 addEventListener：每次打开景点都会重跑一遍 renderStaticMap，
+  // 监听器会一层层堆起来，一次加载就触发 N 次回调（还会连着旧景点的闭包）。
+  // wantUrl 用来认领"这次要的图"：上一处景点挂住的请求迟到返回时，不能把旧底图
+  // 铺到新景点标题下面。
+  let wantUrl = '';
+  img.onload = () => {
+    if (!wantUrl || img.getAttribute('src') !== wantUrl) return;   // 迟到的旧请求，忽略
+    if (img.naturalWidth > 0) showMap(); else showFail();
+  };
+  img.onerror = () => {
+    if (wantUrl && img.getAttribute('src') === wantUrl) showFail();
+  };
+
   const paint = () => {
     const v = mapViewByKey(mapViewKey);
     const u = staticMapUrl(coord[0], coord[1], { zoom: v.zoom, width: v.w, height: v.h });
-    if (!u) { box.hidden = true; return; }
+    if (!u) { wantUrl = ''; showFail(false); return; }
+    // 无论发不发请求，先把"这一处该显示哪张图"记在 data-src 上：
+    // 降级时也不能留着上一处景点的地址，否则坐标/截图都会张冠李戴。
     img.setAttribute('data-src', u);
+    // 已知不可用：不再发一次注定挂住的请求，也不让用户再等 6 秒。
+    // 这里不再刷新时间戳，否则一直翻景点会把"过期重试"无限推后。
+    if (mapIsDown()) { wantUrl = ''; img.removeAttribute('src'); showFail(false); return; }
+    // 换上新地址再收回降级态，避免旧底图短暂挂在新景点标题下。
+    // 只有"重试同一个地址"才需要先清 src：同值赋给 img.src 浏览器认为没变、不发请求。
+    if (img.getAttribute('src') === u) img.removeAttribute('src');
+    wantUrl = u;
     img.src = u;
-    markLoading(img);
-    robustImg(img, () => {
-      // 静态图拿不到（配额/网络/Referer 未白名单）→ 整块隐藏，不留破图
-      box.hidden = true;
-    });
+    showMap();                          // 先收回降级态（会顺手清掉 skel）
+    img.classList.add('skel');          // 再挂骨架屏，等 onload/onerror 收尾
+    stopMapTimer();
+    mapTimer = setTimeout(() => showFail(), MAP_TIMEOUT);
   };
+  if (retry) {
+    retry.onclick = () => { mapDownAt = 0; paint(); };
+  }
   // 视野档位按钮
   MAP_VIEWS.forEach(v => {
     const b = $('#map-view-' + v.key);
