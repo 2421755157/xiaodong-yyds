@@ -50,6 +50,18 @@ async function waitFor(fn, timeout = 8000, step = 200) {
   return last;
 }
 
+// 判断当前地址是不是导航目标（同文档 hash 跳转用）。
+// 不能直接比字符串：浏览器会把 hash 里的中文重新百分号编码，大小写也可能不同。
+function sameDocUrl(current, target) {
+  try {
+    const a = new URL(current), b = new URL(target);
+    return a.origin === b.origin && a.pathname === b.pathname && a.search === b.search
+      && decodeURIComponent(a.hash) === decodeURIComponent(b.hash);
+  } catch (e) {
+    return false;
+  }
+}
+
 async function getTarget() {
   // 显式新建一个 target，而不是复用列表里第一个 page。
   // 原因：浏览器实例里可能已有 edge:// 弹窗页、扩展页等，
@@ -130,10 +142,29 @@ class CDP {
   // 导航并等文档真正加载完成。
   // 必须在 eval 之前用：新建 target 初始是 about:blank（opaque origin），
   // 直接 eval 会抛 SecurityError（localStorage 无权限）。
+  //
+  // ⚠ 不能只等 Page.loadEventFired。站内「切景点/切城市」走的都是 hash 跳转，
+  // 属于**同文档导航**，load 事件永远不会再来（Page.navigate 对这类导航也不返回
+  // loaderId）：以前每次都干等满 20s 超时才继续，整个套件为此多花约 4 分钟；
+  // 更要命的是这段空窗里页面其实早已切换，断言却可能在切换瞬间读到**上一处
+  // 景点**的 DOM——「分片失败后打开同片景点能自动重试」偶发假失败就是这么来的。
+  // 现在按 loaderId 分流：换文档才等 load，纯 hash 跳转只等地址生效。
   async navigate(url, timeout = 20000) {
     const loaded = this.waitEvent('Page.loadEventFired', timeout);
-    await this.send('Page.navigate', { url });
-    await loaded;
+    const nav = await this.send('Page.navigate', { url, transitionType: 'typed' });
+    if (nav && nav.loaderId) {
+      await loaded;
+    } else {
+      // 同文档：等到 location 真的变成目标地址（最多 3s，正常几十毫秒）
+      const t0 = Date.now();
+      while (Date.now() - t0 < 3000) {
+        try {
+          const href = await this.eval('location.href');
+          if (sameDocUrl(href, url)) break;
+        } catch (e) { /* 导航中上下文可能被销毁，下一轮再试 */ }
+        await sleep(50);
+      }
+    }
     await sleep(300);
   }
   send(method, params = {}) {
@@ -202,6 +233,7 @@ function check(name, ok, detail = '') {
   });
   let longBlockIdx = null;   // 要掐断的分片号（掐一次后自动清空）
   let longBlockHits = 0;
+  const longReqCount = Object.create(null);   // 分片号 → 实际发出的请求次数
   let mapBlockOnce = false;  // 掐断一次静态图请求，验证"接口被拦"时的降级
   let mapBlockHits = 0;
   let mapReqSeen = 0;        // 底图请求次数（含被掐断的），用来验证"不重复发"与"重试真发"
@@ -211,7 +243,9 @@ function check(name, ok, detail = '') {
       if (/api\.map\.baidu\.com/.test(url)) mapReqSeen++;
       const lm = url.match(/long-db-(\d+)\.js/);
       if (lm) {
-        if (longBlockIdx !== null && Number(lm[1]) === longBlockIdx) {
+        const idx = Number(lm[1]);
+        longReqCount[idx] = (longReqCount[idx] || 0) + 1;
+        if (longBlockIdx !== null && idx === longBlockIdx) {
           longBlockIdx = null;   // 只掐这一次，后面要能恢复
           longBlockHits++;
           await cdp.send('Fetch.failRequest', {
@@ -1023,6 +1057,10 @@ function check(name, ok, detail = '') {
       const j = await cdp.eval(`(() => {
         const m = document.getElementById('intro-modal');
         if (!m || m.hidden) return '';
+        // 必须确认弹窗里是**这一处**：切景点是同文档 hash 跳转，详情页会先保留
+        // 上一处的 DOM 再异步换成新的，只判"弹窗开着且有文案"会把上一处的名字
+        // 和简介当成目标景点的结果（同片重试那条断言就是这样偶发假失败的）。
+        if ((document.getElementById('intro-name') || {}).textContent !== ${JSON.stringify(name)}) return '';
         const d = (document.getElementById('intro-desc') || {}).textContent || '';
         if (d.length < ${minLen}) return '';
         const cv = document.querySelector('#intro-cover img');
@@ -1067,6 +1105,14 @@ function check(name, ok, detail = '') {
 
   const hzHome = await openSpotByHash('浙江', '杭州', '西湖');
   await sleep(1500);
+  // 先等上一处的底图落定（解码完成或已明确降级），再往下注入「掐断」。
+  // 固定 sleep 靠不住：本地底图有时几百毫秒就解码完，有时要等满 6s 超时；
+  // 上一处请求还悬着时注入，掐断会落到它身上，故宫那条反而"正常出图"，
+  // 紧接着的「不再重复请求」也会跟着误判（实测就是这样连挂三条）。
+  await waitFor(async () => {
+    const s = await readMap();
+    return (!s.hidden && (mapDecoded(s) || s.failShown)) ? s : 0;
+  }, 14000);
   const hzHomeMap = await mapLocationOf();
   const hzHomeNear = hzHomeMap.loc && Math.abs(hzHomeMap.loc[0] - 120.15) < 0.6
     && Math.abs(hzHomeMap.loc[1] - 30.25) < 0.6;
@@ -1079,14 +1125,34 @@ function check(name, ok, detail = '') {
   //       AK 白名单对不上新域名）。降级后「在百度地图打开」必须还在 ——
   //       那条链接不走静态图接口，是这种情况下唯一还有用的出口。
   //       这条在任何网络环境下都可复现，不依赖接口到底通不通。
-  mapBlockOnce = true;
-  // 只改 hash，不整页导航：hash 只差片段时不会触发 load 事件，
-  // 走 cdp.navigate 会白等 20s 超时。这里直接改地址，让路由自己开详情。
+  // 只改 hash，不整页导航，让路由自己开详情。
   const bjHash = '#/' + encodeURIComponent('北京') + '/'
     + encodeURIComponent('北京') + '/' + encodeURIComponent('故宫');
   await cdp.eval(`location.hash = ${JSON.stringify(bjHash)}`);
   await waitFor(async () => (await cdp.eval(
     "(document.getElementById('intro-name')||{}).textContent || ''")) === '故宫', 8000);
+  // 故宫的底图在本会话更早的时候已经显示过（3D/全景段），同一地址会直接走
+  // 浏览器的图像解码缓存、**根本不发请求**，"掐断"就无从谈起（实测 hits=0，
+  // 图 1024x768 直接出来，后面三条跟着全挂）。所以先等这一处的默认底图落定
+  // （解码或已降级），再切一个当前没用着的视野档，换出必然要重新下载的地址，
+  // 掐断才落得到实处。
+  // 两个动作不能叠在一起：切档请求若落进上一次 paint 的收尾里，掐断虽然命中，
+  // 这一处的降级回调却不触发（实测 5 条连锁失败）。
+  await waitFor(async () => {
+    const s = await readMap();
+    return (!s.hidden && (mapDecoded(s) || s.failShown)) ? s : 0;
+  }, 14000);
+  const settledBeforeBlock = await readMap();
+  if (!settledBeforeBlock.failShown) {
+    mapBlockOnce = true;
+    await cdp.eval(`(() => {
+      const btn = ['block', 'area', 'city']
+        .map(k => document.getElementById('map-view-' + k))
+        .find(b => b && !b.classList.contains('on'));
+      if (btn) btn.click();
+      return 1;
+    })()`);
+  }
   const blocked = await waitFor(async () => {
     const s = await readMap();
     return (!s.hidden && s.failShown) ? s : 0;
@@ -1099,7 +1165,8 @@ function check(name, ok, detail = '') {
   }
   check('底图被掐断时明确降级（不留空白框）',
     !!blocked && blocked.frameHidden === true && blocked.liveBtns === 0 && mapBlockHits === 1,
-    !blocked ? '等不到降级说明（区块仍空转）'
+    !blocked ? '等不到降级说明（区块仍空转）：底图请求 ' + mapReqSeen
+      + ' 次、掐断 ' + mapBlockHits + ' 次'
       : '图框隐藏=' + blocked.frameHidden + ' 残留按钮=' + blocked.liveBtns
         + ' 掐断=' + mapBlockHits + ' 次');
   check('降级后仍留有可用的地图出口',
@@ -1321,6 +1388,7 @@ function check(name, ok, detail = '') {
   await cdp.navigate(BASE);
   await sleep(3000);
   longBlockHits = 0;
+  longReqCount[7] = 0;                    // 只数这一小段里第 8 片的请求
   longBlockIdx = 7;                       // 第 8 片：西湖、西柏坡都在这一片
   await openSpotByHash('浙江', '杭州', '西湖');
   await sleep(1500);
@@ -1333,14 +1401,25 @@ function check(name, ok, detail = '') {
     '注入失败 ' + longBlockHits + ' 次，历史沿革块可见=' + blockedHist);
 
   const retry = await openSpotByHash('河北', '石家庄', '西柏坡', 2);
+  // 三件事一起判，缺一条都不算恢复：
+  //   ① 弹窗里确实是西柏坡（不是上一处残留的 DOM）
+  //   ② 历史沿革真的出来了
+  //   ③ 第 8 片**又发了一次请求**——否则可能只是浏览器把失败结果留在了
+  //      模块图里，正文来自别处（这条同时守住"失败不入缓存"的语义）
   const recovered = await waitFor(async () => {
-    const t = await cdp.eval(
-      "((document.getElementById('hist-text') || {}).textContent || '')");
-    return t.length > 40 ? t : 0;
-  }, 8000);
+    const raw = await cdp.eval(`(() => {
+      const t = (document.getElementById('hist-text') || {}).textContent || '';
+      const n = (document.getElementById('intro-name') || {}).textContent || '';
+      return JSON.stringify({ n, len: t.length, t: t.slice(0, 26) });
+    })()`);
+    const o = JSON.parse(raw);
+    return (o.n === '西柏坡' && o.len > 40) ? o : 0;
+  }, 12000);
   check('分片失败后打开同片景点能自动重试（不用刷新）',
-    !!recovered && retry.name === '西柏坡',
-    recovered ? recovered.slice(0, 26) : '(仍然为空，分片被永久判死了)');
+    !!recovered && (longReqCount[7] || 0) >= 2,
+    (recovered ? recovered.t : '(仍然为空，分片被永久判死了)')
+      + ' / 当前景点=' + (recovered ? recovered.n : retry.name || '(空)')
+      + ' / 第8片请求 ' + (longReqCount[7] || 0) + ' 次');
 
   // 10) 欢迎页（首次访客）不做主页才用得上的下载
   //     原先是无条件 renderNav()：新访客还停在「怎么称呼你」那一屏，
