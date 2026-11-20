@@ -1554,9 +1554,31 @@ function check(name, ok, detail = '') {
   })()`;
   const REDUCE = [{ name: 'prefers-reduced-motion', value: 'reduce' }];
 
+  // 这一段量的必须是「新访客第一次进门」那张欢迎页。同文档 hash 导航不会重跑
+  // 启动逻辑（returning/deep 都是旧文档算的），欢迎屏只是被旧文档又显示了一次，
+  // 粒子循环却不会重启 —— 那样量到的是一张停住的旧画布，跟本站动效无关。
+  // 记下 timeOrigin 就能分辨这次导航到底有没有换文档。
+  const originBefore = await cdp.eval('performance.timeOrigin');
   await cdp.send('Emulation.setEmulatedMedia', { features: REDUCE });
   await cdp.eval('localStorage.clear()');
   await cdp.navigate(BASE);
+  const docReloaded = originBefore !== await cdp.eval('performance.timeOrigin');
+  // 冻结时的现场：媒体偏好到底是不是 reduce、门禁屏可见性、画布是否还在文档里、
+  // 页面 rAF 还有没有在跑。缺了这几项，日志里只剩一个"没动"，根本分不清
+  // 是产品冻住了，还是测试自己把页面搞到后台了。
+  const starDiag = async () => {
+    const d = await cdp.eval(`new Promise(resolve => {
+      const c = document.querySelector('#gate-particles');
+      const g = document.getElementById('gate');
+      const t0 = performance.now(); let n = 0;
+      (function f() { n++; performance.now() - t0 < 400 ? requestAnimationFrame(f)
+        : resolve({ anim: matchMedia('(prefers-reduced-motion: reduce)').matches,
+            gateHidden: g.hidden, connected: c.isConnected, w: c.width, h: c.height,
+            frames: n, rv: document.visibilityState }); })();
+    })`);
+    return `诊断: 本次导航重载=${docReloaded} 媒体reduce=${d.anim} 门禁隐藏=${d.gateHidden}`
+      + ` 画布在文档内=${d.connected} ${d.w}×${d.h} 400ms帧数=${d.frames} 可见性=${d.rv}`;
+  };
   // 等欢迎页真的画出来，而不是赌一个固定毫秒数
   await waitFor(() => cdp.eval(
     "!document.getElementById('gate').hidden && document.querySelector('#gate-particles').width > 0"
@@ -1579,8 +1601,10 @@ function check(name, ok, detail = '') {
     const s = await cdp.eval(STAR);
     return s.dev !== n1.dev ? s : null;
   }, 2500) || await cdp.eval(STAR);
-  check('恢复正常动效后星空继续流动', n1.vis && n1.dev !== n2.dev,
-    '偏离量 ' + n1.dev + ' → ' + n2.dev + (n1.vis ? '' : '（门禁屏没显示）'));
+  const stalled = n1.dev === n2.dev;
+  check('恢复正常动效后星空继续流动', n1.vis && !stalled,
+    '偏离量 ' + n1.dev + ' → ' + n2.dev + (n1.vis ? '' : '（门禁屏没显示）')
+    + (stalled ? '；' + await starDiag() : ''));
   await cdp.send('Emulation.setEmulatedMedia', { features: REDUCE });
   await sleep(700);
   const q1 = await cdp.eval(STAR); await sleep(450); const q2 = await cdp.eval(STAR);
@@ -1755,6 +1779,37 @@ function check(name, ok, detail = '') {
     gateShown === true && afterGate.hash === '#/广东/清远'
       && afterGate.cards === 5 && afterGate.first === '英西峰林',
     `欢迎页=${gateShown} 地址=${afterGate.hash} 卡片=${afterGate.cards} 首项=${afterGate.first}`);
+
+  // 15) 图集凑不满时的占位文案
+  //     9 处景点只有主图、136 处只有主图 + 1 张图组，第三格永远是占位图。
+  //     占位图里以前焊死「实景图加载中…」——图库早就到货了，那几个格子再也不会变，
+  //     等于让用户一直等一张不会来的图。同时占位格不可点，名称也不该像按钮。
+  await cdp.navigate(BASE + '?gal=1#/' + enc('吉林') + '/' + enc('通化') + '/' + enc('三角龙湾'));
+  await waitFor(() => cdp.eval("!!document.querySelector('#intro-gallery figure')"), 12000);
+  const phInfo = await waitFor(async () => {
+    const s = await cdp.eval(`(() => {
+      const figs = [...document.querySelectorAll('#intro-gallery figure')];
+      if (figs.length !== 3) return null;
+      const last = figs[2];
+      const src = (last.querySelector('img') || {}).getAttribute('src') || '';
+      if (!src.startsWith('data:')) return null;   // 图集库还没到货 / 该景点其实有 3 张
+      const svg = decodeURIComponent(src.slice(src.indexOf(',') + 1));
+      return JSON.stringify({
+        hint: svg.includes('暂无更多实景'),
+        loading: svg.includes('加载中'),
+        zoom: last.classList.contains('no-zoom'),
+        tab: last.getAttribute('tabindex'),
+        aria: last.getAttribute('aria-label') || '',
+      });
+    })()`);
+    return s ? JSON.parse(s) : null;
+  }, 15000);
+  check('图集凑不满时不再谎称"加载中"',
+    !!phInfo && phInfo.hint && !phInfo.loading,
+    phInfo ? '占位提示=暂无更多实景，仍含加载中=' + phInfo.loading : '第三格没等到占位图');
+  check('占位格不可点、名称不冒充按钮',
+    !!phInfo && phInfo.zoom && phInfo.tab === null && phInfo.aria.startsWith('暂无更多实景图'),
+    phInfo ? 'no-zoom=' + phInfo.zoom + ' tabindex=' + phInfo.tab + ' aria=' + phInfo.aria : '');
 
   console.log('\n通过 ' + results.filter(r => r.ok).length + '/' + results.length);
   const failed = results.filter(r => !r.ok);

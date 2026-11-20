@@ -29,7 +29,10 @@ function gradFor(type) {
 
 // ── 主题占位图（SVG data URI）──
 // 注：不需要序号参数 —— 占位图只按类型取渐变，同一景点的多张占位图本就相同
-function placeholder(spotName, type) {
+// hint 是图上那行小字。默认「加载中」——图库还没到货时这是实话；图库已就绪、
+// 这处景点确实凑不满格子时由调用方换成「暂无更多实景」，免得 145 处景点
+// 永远停在一行假的"加载中"上。
+function placeholder(spotName, type, hint = '实景图加载中…') {
   const [a, b] = gradFor(type);
   const svg =
     "<svg xmlns='http://www.w3.org/2000/svg' width='600' height='400'>" +
@@ -39,7 +42,7 @@ function placeholder(spotName, type) {
     "<rect width='600' height='400' fill='url(#g)'/>" +
     "<circle cx='480' cy='90' r='46' fill='rgba(255,255,255,.10)'/>" +
     "<text x='300' y='200' font-size='34' fill='rgba(255,255,255,.92)' text-anchor='middle' font-family='sans-serif'>" + spotName + "</text>" +
-    "<text x='300' y='238' font-size='15' fill='rgba(255,255,255,.55)' text-anchor='middle' font-family='sans-serif'>实景图加载中…</text>" +
+    "<text x='300' y='238' font-size='15' fill='rgba(255,255,255,.55)' text-anchor='middle' font-family='sans-serif'>" + hint + "</text>" +
     "</svg>";
   return 'data:image/svg+xml;charset=utf8,' + encodeURIComponent(svg);
 }
@@ -142,6 +145,13 @@ export function getSpotImages(spotName, provName, count = 3, type, key) {
   if (c[spotName]) for (const u of c[spotName]) push(u);
   // 占位图：同一景点的多张占位图内容完全相同（只有渐变+名字），
   // 全部走 push 会被去重掉 → 补位时直接 push，保留"每格一张"的视觉
-  while (out.length < count) out.push(placeholder(spotName, type));
+  //
+  // 两个库都就绪还凑不满，说明这处景点确实没有更多实景了（9 处只有主图、
+  // 136 处只有主图+1 张图组）。这时候再写「加载中」是骗人：图集库早就到了，
+  // 那几个格子永远不会变。改成「暂无更多实景」，把"还在等"和"就这些"分开。
+  const exhausted = IMAGES_DB.ready() && GALLERY_DB.ready();
+  while (out.length < count) {
+    out.push(placeholder(spotName, type, exhausted ? '暂无更多实景' : undefined));
+  }
   return out.slice(0, count);
 }

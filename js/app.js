@@ -204,6 +204,12 @@ function startGateParticles() {
 RM_REDUCE.addEventListener('change', () => {
   if ($('#gate').hidden || !gateSync) return;
   gateSync();
+  // 兜底：个别环境（含 CDP 的媒体模拟）会在 matches 更新之前就把 change 派发下来，
+  // 这一下会按旧值把画面停在静态帧，而且不会再有第二次事件 —— 下一帧再校一次，
+  // 该动却没动就重排一遍。正常时序下这里只是多判一次，不会重复启动循环。
+  requestAnimationFrame(() => {
+    if (!$('#gate').hidden && gateSync && !gateRaf && !RM_REDUCE.matches) gateSync();
+  });
 });
 
 function show(id) {
@@ -1185,9 +1191,15 @@ async function openSpot(prov, city, spot, pushEntry = false) {
     gal.innerHTML = '';
     galImgs.length = 0;
     const realImgs = getSpotImages(spot.n, prov.n, 3, spot.t, SPOT_KEY.get(spot));
+    // 图集库到货后，凑不满的格子就是"真没有更多实景"了（占位图上也会这么写）。
+    const exhausted = galleryReady();
     for (let i = 0; i < 3; i++) {
       const fig = document.createElement('figure');
-      fig.setAttribute('aria-label', '查看大图：' + caps[i]);
+      // 占位图不可点，就别挂"查看大图"这种按钮式名称 —— 屏幕阅读器会以为能点开。
+      const isPh = !realImgs[i] || realImgs[i].startsWith('data:');
+      fig.setAttribute('aria-label', isPh
+        ? (exhausted ? '暂无更多实景图：' : '实景图加载中：') + caps[i]
+        : '查看大图：' + caps[i]);
       // 键盘用户也要能打开灯箱：单靠 click 的话 Tab 永远到不了这里。
       // 是否可点由 syncZoomable() 按当前图片决定（补图后可能从占位变实景）。
       fig.addEventListener('keydown', e => {
@@ -1200,7 +1212,9 @@ async function openSpot(prov, city, spot, pushEntry = false) {
       gal.appendChild(fig);
       syncZoomable(fig, realImgs[i]);
       const img = fig.querySelector('img');
-      markLoading(img);
+      // 占位图是 data: URI，设 src 当帧就"加载完成"，加骨架微光只会闪一下白，
+      // 真正等图的是下面的实景，所以只给实景图上骨架。
+      if (!isPh) markLoading(img);
       img.setAttribute('data-src', realImgs[i]);
       img.src = realImgs[i];
       robustImg(img, () => { fig.style.background = city.cover; img.style.display = 'none'; });

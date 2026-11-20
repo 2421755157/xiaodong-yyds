@@ -309,6 +309,19 @@ await test('getSpotImages: count 大于可用图片时补占位图', () => {
   assert.equal(imgs.length, 5);
 });
 
+// 9 处只有主图、136 处只有主图+1 张图组：图集第三格永远是占位图。
+// 图库都到货了还写「实景图加载中…」，等于让用户一直等一张不会来的图。
+await test('图集补位: 两个库就绪后占位图说"暂无更多实景"而不是"加载中"', async () => {
+  await si.loadSpotImages();
+  await si.ensureGallery();
+  const imgs = si.getSpotImages('三角龙湾', '吉林', 3, 'water', '三角龙湾');
+  const ph = imgs.filter(u => u.startsWith('data:'));
+  assert.ok(ph.length >= 1, '该景点只有 2 张实景，第 3 格应是占位图，实际 ' + imgs.length + ' 张');
+  const svg = decodeURIComponent(ph[0].replace(/^data:image\/svg\+xml;charset=utf8,/, ''));
+  assert.ok(svg.includes('暂无更多实景'), '占位图应说明没有更多实景，实际：' + svg.slice(0, 120));
+  assert.ok(!svg.includes('加载中'), '图库已就绪，不该再说加载中');
+});
+
 // ── 3D 预热的网络条件判断 ──
 // 3D 运行时约 1MB，不该替「开了省流量 / 在 2G3G 上」的用户预支这笔流量
 await test('3D 预热: 省流量模式下不预热', () => {
