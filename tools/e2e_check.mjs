@@ -1153,15 +1153,24 @@ function check(name, ok, detail = '') {
       return 1;
     })()`);
   }
-  const blocked = await waitFor(async () => {
+  let blocked = await waitFor(async () => {
     const s = await readMap();
     return (!s.hidden && s.failShown) ? s : 0;
   }, 12000);
   // 若前面的失败记忆还在（5 分钟内），区块会直接降级、请求根本没发出去，
   // 那样"被掐断"这条路径就没被真正验证。点一次重试，让请求真的发出去再掐断。
+  // ⚠ 重试这一次也必须重新置位 mapBlockOnce：接口本身就不通的环境里，
+  //   上面「切视野档」分支根本不会执行（进段时已降级），开关一直是 false，
+  //   重试发出的请求没人拦 → mapBlockHits 恒为 0，断言就按 hits===1 判红。
+  //   按下重试后要等这一请求真的被掐断，再重读降级态；否则读到的是点击前的旧状态。
   if (mapBlockHits === 0) {
+    mapBlockOnce = true;
     await cdp.eval("(()=>{const b=document.getElementById('map-retry'); if(b && !b.hidden) b.click(); return 1})()");
-    await waitFor(async () => (await readMap()).failShown, 12000);
+    await waitFor(async () => mapBlockHits > 0, 12000);
+    blocked = await waitFor(async () => {
+      const s = await readMap();
+      return (!s.hidden && s.failShown) ? s : 0;
+    }, 12000);
   }
   check('底图被掐断时明确降级（不留空白框）',
     !!blocked && blocked.frameHidden === true && blocked.liveBtns === 0 && mapBlockHits === 1,
