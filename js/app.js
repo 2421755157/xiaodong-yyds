@@ -7,6 +7,7 @@
 // 重活全部交给 three-loader.js 在真正需要时按需拉取。
 import { store, titleFor } from './store.js';
 import { PROVINCES, SPOT_TYPE, stats } from './china-data.js';
+import { collectHits } from './search-core.js';
 import { resolveTheme, THEME_ORDER, themeLabel, PRO_SCENES, spotSeed, setQuality } from './scenes-meta.js';
 import { isMobile, hasWebGL } from './env.js';
 import { loadThreeRuntime, loadPanorama, warmUpThree } from './three-loader.js';
@@ -532,36 +533,15 @@ function doSearch() {
     const [full, ini] = v.split('|');
     return full.includes(qq) || ini === qq || (qq.length >= 2 && ini.startsWith(qq));
   };
-  const results = [];
-  // 命中上限：超出后跳出整个三层循环（原来只 break 最内层，
-  // 外层还会继续扫，白白遍历全省景点）
-  const MAX_HITS = 60;
-  outer:
-  for (const p of PROVINCES) {
-    if (searchProv && p.n !== searchProv) continue;
-    const hitProv = (p.n.includes(q) || p.c.includes(q) || pyHit(p.n));
-    if (hitProv && searchType !== 'spot' && searchType !== 'city') {
-      results.push({ byName: true, type: 'prov', prov: p, label: p.n + '（省）', sub: '省会 ' + p.cap + ' · ' + p.cities.length + ' 市' });
-    }
-    for (const c of p.cities) {
-      const hitCity = c.n.includes(q) || pyHit(c.n);
-      if (hitCity && (searchType === 'all' || searchType === 'city')) {
-        results.push({ byName: true, type: 'city', prov: p, city: c, label: c.n + '（市）', sub: p.n + ' · ' + c.spots.length + ' 处风景' });
-      }
-      if (searchType === 'city' || searchType === 'prov') continue;
-      for (const s of c.spots) {
-        const d = realDesc(s);
-        const byName = s.n.includes(q) || pyHit(s.n);
-        if (byName || d.includes(q)) {
-          results.push({ byName, type: 'spot', prov: p, city: c, spot: s, label: s.n, sub: p.n + ' ' + c.n, tag: (SPOT_TYPE[s.t] || {}).label, hit: byName ? s.n : d });
-          if (results.length >= MAX_HITS) break outer;
-        }
-      }
-    }
-  }
-  // 排序：名称（含拼音）命中的排最前，其次是简介命中的景点
-  const rank = r => (r.type === 'spot' && r.byName ? 0 : r.type === 'spot' ? 1 : r.type === 'city' ? 2 : 3);
-  results.sort((a, b) => rank(a) - rank(b));
+  // 命中采集与排序在 search-core.js（纯函数，可单测）：
+  // 名称命中不受条数上限约束，正文命中才按配额收，避免前面的省份用正文
+  // 把配额吃光、后面省份"名字对得上"的景点反而搜不到。
+  const results = collectHits(PROVINCES, q, {
+    type: searchType,
+    prov: searchProv,
+    readDesc: realDesc,
+    pyHit,
+  });
   const shown = results.slice(0, 40);
   const focusMark = searchFocusMark(box);
 

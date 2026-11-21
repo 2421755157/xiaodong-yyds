@@ -802,6 +802,67 @@ await test('简介分片: 省份不认识时立即返回空，不发起请求', 
   assert.equal(ds.descTried('不存在的省'), false, '未知省份不该记为「已请求」');
 });
 
+// 搜索命中采集：原先"收到 60 条就整轮退出"，而遍历顺序是省→市，
+// 热门泛名（岛/博物馆/山）光靠前几个省的**正文**就能吃满配额，
+// 后面省份"名字里就有这个词"的景点直接被丢——用户搜「刘公岛」得先搜得到才点得开。
+// 现在名称命中不占正文配额。下面的合成用例把这条规则钉死，真实用例再看实际数据。
+await test('搜索: 名称命中不被正文配额挤掉（合成数据）', async () => {
+  const { collectHits, MAX_DESC_HITS } = await import('../js/search-core.js');
+  const mk = (provName, spotName, desc) => ({
+    n: provName, c: 'X', cap: 'X',
+    cities: [{ n: provName + '市', spots: [{ n: spotName, t: 'park', d: desc || '' }] }],
+  });
+  // 前 61 个省的景点正文里都写着"灯塔"，目标景点在最后、名字叫"灯塔"
+  const provinces = [];
+  for (let i = 0; i < MAX_DESC_HITS + 1; i++) provinces.push(mk('省' + i, '某地' + i, '灯塔'));
+  provinces.push(mk('最后一省', '灯塔'));
+  const res = collectHits(provinces, '灯塔', { readDesc: s => s.d || '' });
+  assert.ok(res.some(r => r.type === 'spot' && r.label === '灯塔' && r.byName),
+    '名称命中的景点被正文配额挤掉了');
+  assert.equal(res.filter(r => r.type === 'spot' && !r.byName).length, MAX_DESC_HITS,
+    '正文命中应正好收满配额');
+});
+
+await test('搜索: 名称命中不读正文（省掉整库字串搜索）', async () => {
+  const { collectHits } = await import('../js/search-core.js');
+  const provinces = [{ n: '甲省', c: '甲', cap: '甲', cities: [{ n: '甲市', spots: [{ n: '甲山', t: 'mountain' }] }] }];
+  let reads = 0;
+  collectHits(provinces, '甲山', { readDesc: () => { reads++; return ''; } });
+  assert.equal(reads, 0, '名称已命中的景点不该再去读正文，实际读了 ' + reads + ' 次');
+});
+
+await test('搜索: 泛名关键词下热门景点排在可见的前 40 条里', async () => {
+  const { collectHits } = await import('../js/search-core.js');
+  const { SPOT_DESC_DB } = await import('../js/spot-desc-db.js');
+  const keyOf = new Map();
+  for (const p of PROVINCES) {
+    for (const c of p.cities) {
+      for (const s of c.spots) keyOf.set(s, spotDescKey(p.n, c.n, s.n));
+    }
+  }
+  const readDesc = s => SPOT_DESC_DB[keyOf.get(s)] || SPOT_DESC_DB[s.n] || '';
+  const cases = [
+    ['岛', ['刘公岛', '长岛', '养马岛']],
+    ['博物馆', ['陕西历史博物馆', '甘肃省博物馆']],
+    ['湖', ['西湖', '洪泽湖']],
+  ];
+  const lost = [];
+  for (const [q, names] of cases) {
+    const top = collectHits(PROVINCES, q, { readDesc }).slice(0, 40).map(r => r.label);
+    for (const n of names) if (!top.includes(n)) lost.push('搜「' + q + '」看不到' + n);
+  }
+  assert.deepEqual(lost, [], lost.join('；'));
+});
+
+await test('搜索: 全等命中排在包含命中之前，同名异地都保留', async () => {
+  const { collectHits } = await import('../js/search-core.js');
+  const provinces = [{ n: '甲省', c: '甲', cap: '甲', cities: [{ n: '甲市', spots: [
+    { n: '西湖公园', t: 'park' }, { n: '西湖', t: 'water' },
+  ] }] }];
+  const order = collectHits(provinces, '西湖').map(r => r.label);
+  assert.deepEqual(order, ['西湖', '西湖公园'], '全等命中没有排在最前：' + order.join('、'));
+});
+
 // ─────────────────────────── 汇总 ───────────────────────────// 注意：不要写 '\n通过 %d，失败 %d' % (...) ——
 // 全角逗号会让 util.format 把 %d 当字面量，整行输出成 NaN。
 console.log('\n通过 ' + passed + '，失败 ' + failed + '，跳过 ' + skipped);

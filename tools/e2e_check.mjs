@@ -821,6 +821,29 @@ function check(name, ok, detail = '') {
   check('切换筛选后焦点仍在该按钮上且状态可读',
     srcChip.ok === true, `焦点=${srcChip.where} aria-pressed=${srcChip.pressed}`);
 
+  // 7a-5) 泛名关键词：名称命中不能被前面省份的正文命中挤掉。
+  //       原实现"收到 60 条就整轮退出"，而遍历顺序是省→市，搜「岛」时
+  //       上海/河北/辽宁的正文命中就把配额吃满，山东的刘公岛、长岛、养马岛
+  //       连前 40 条都进不去——用户搜名字却搜不到，属于"漏"不是"排得靠后"。
+  const srQuota = await cdp.eval(`(async()=>{
+    const i = document.getElementById('search-input');
+    // 搜索是防抖的：不清掉上一轮的结果，"有 sr-item"会被旧结果直接满足，
+    // 读到的还是太湖那几条。清空后面板重建才说明这一轮跑完了。
+    document.getElementById('search-results').innerHTML = '';
+    i.value = '岛';
+    i.dispatchEvent(new Event('input', {bubbles:true}));
+    for (let k = 0; k < 24; k++) {
+      if (document.querySelectorAll('#search-results .sr-item').length) break;
+      await new Promise(r => setTimeout(r, 250));
+    }
+    const labels = [...document.querySelectorAll('#search-results .sr-item b')].map(e => e.textContent);
+    const want = ['刘公岛', '长岛', '养马岛'].filter(n => labels.includes(n));
+    return JSON.stringify({ n: labels.length, want, head: labels.slice(0, 3) });
+  })()`);
+  const srq = JSON.parse(srQuota);
+  check('泛名搜索不丢名称命中（搜「岛」能看到山东那几处）',
+    srq.want.length === 3, `前 ${srq.n} 条命中 ${srq.want.length}/3（${srq.want.join('、') || '无'}），首三条=${srq.head.join('、')}`);
+
   // 7a) 搜索要能命中「简介正文」而不只是名称
   // （原实现里简介库是懒加载的，库没就绪时 get() 恒为 undefined，
   //  搜正文会全部落空 —— 这条断言专门守住这个回归）
