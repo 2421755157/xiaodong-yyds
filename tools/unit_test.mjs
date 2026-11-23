@@ -11,7 +11,7 @@
 // 需要本地 HTTP 服务（E2E 同款）跑 DOM 相关的部分；没有则跳过那几项。
 
 import assert from 'node:assert';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { lazyDB } from '../js/lazy-db.js';
 import * as sm from '../js/staticmap.js';
 import * as sv from '../js/streetview.js';
@@ -20,6 +20,7 @@ import * as meta from '../js/scenes-meta.js';
 import * as tl from '../js/three-loader.js';
 import { spotDescKey, pickSpotDesc, pickCoord, pickBySpotKey } from '../js/lexicon.js';
 import { PROVINCES } from '../js/china-data.js';
+import { LONG_SHARD_OF } from '../js/long-shard-map.js';
 
 let passed = 0, failed = 0;
 const skipped = 0;   // 预留：将来有条件跳过的用例
@@ -594,13 +595,25 @@ await test('景点列表: 换上的景点都有本地简介与封面', async () 
 // 「广东惠州西湖」的详情页整段在讲浙江杭州。键也得一起管。
 const LONG_DB = {};
 const LONG_CHUNK_OF = {};
-for (let i = 0; i < 8; i++) {
-  const m = await import('../js/long-db-' + i + '.js');
+// 分片文件按盘上的实际清单枚举，不再写死 0..7：分片规则从「首字取模 8 片」
+// 改成「一省一片」后，写死数量会让新增的片读都不读，测试却照样绿。
+const LONG_DIR = new URL('../js/', import.meta.url);
+const LONG_FILES = readdirSync(LONG_DIR)
+  .filter(f => /^long-db-\d+\.js$/.test(f))
+  .sort((a, b) => parseInt(a.slice(8), 10) - parseInt(b.slice(8), 10));
+for (const f of LONG_FILES) {
+  const i = parseInt(f.slice(8), 10);
+  const m = await import(new URL(f, LONG_DIR).href);
   const chunk = m['LONG_DESC_DB_' + i] || {};
   Object.assign(LONG_DB, chunk);
   for (const k of Object.keys(chunk)) LONG_CHUNK_OF[k] = i;
 }
 const longName = k => k.slice(k.lastIndexOf('|') + 1);
+// 景点名 → 所在省（集合：重名景点有多个省）。裸名键只有唯一一处才会用它。
+const LONG_PROV_OF_NAME = {};
+for (const p of PROVINCES) for (const c of p.cities) for (const s of c.spots) {
+  (LONG_PROV_OF_NAME[s.n] = LONG_PROV_OF_NAME[s.n] || new Set()).add(p.n);
+}
 // 跨市重名的景点（西湖 / 南湖公园 / 太白楼 …）
 const LONG_DUP = (() => {
   const cities = {};
@@ -631,11 +644,50 @@ await test('长介绍库: 同名异地各归各城，不互相继承正文', () 
   assert.equal(LONG_DB['安徽|马鞍山|太白楼'], undefined, '马鞍山太白楼不应有长介绍');
 });
 
-await test('长介绍库: 每条键都落在自己的分片里（导出规则与前端一致）', () => {
-  // 分片按「景点名」首字取模，不看键前缀，裸名与分城键才会落进同一片
-  const wrong = Object.keys(LONG_DB)
-    .filter(k => LONG_CHUNK_OF[k] !== longName(k).charCodeAt(0) % 8);
+await test('长介绍库: 每条键都落在自己省份那一片（导出规则与前端一致）', () => {
+  // 分片从 2026-11-23 起按**省份**切（一省一片），不再按景点名首字取模：
+  // 首字取模那版单片 213~411KB，打开一处景点要下八分之一全国的长文。
+  // 这里同时守住「键的省份」与「所在片号」的对应关系 —— 前端只查
+  // js/long-shard-map.js，两边一旦错位，那一省的历史沿革会静默消失。
+  const provOf = k => {
+    if (k.includes('|')) return k.split('|')[0];
+    const s = LONG_PROV_OF_NAME[k];
+    return s && s.size === 1 ? [...s][0] : '';
+  };
+  const wrong = Object.keys(LONG_DB).filter(k => {
+    const prov = provOf(k);
+    return LONG_SHARD_OF[prov] !== LONG_CHUNK_OF[k];
+  });
   assert.deepEqual(wrong, [], '片号对不上：' + wrong.slice(0, 3).join('、'));
+});
+
+await test('长介绍库: 一片只装一个省（拉一片不会带出别省正文）', () => {
+  // 一省一片是这轮的唯一目的：打开一处景点只下它那一省（最大 138KB），
+  // 不是八分之一全国。片里混进第二个省，说明切分退回到了合并模式。
+  const byChunk = {};
+  for (const k of Object.keys(LONG_DB)) {
+    const prov = k.includes('|') ? k.split('|')[0] : [...(LONG_PROV_OF_NAME[k] || [])][0];
+    (byChunk[LONG_CHUNK_OF[k]] = byChunk[LONG_CHUNK_OF[k]] || new Set()).add(prov);
+  }
+  const mixed = Object.entries(byChunk).filter(([, s]) => s.size > 1)
+    .map(([i, s]) => '片' + i + '含' + s.size + '省');
+  assert.deepEqual(mixed, [], mixed.join('、'));
+});
+
+await test('长介绍库: 每个省份都有分片映射（省名对不上就整省没有正文）', () => {
+  const miss = PROVINCES.map(p => p.n).filter(n => !Number.isInteger(LONG_SHARD_OF[n]));
+  assert.deepEqual(miss, [], '有省查不到片号：' + miss.join('、'));
+  assert.ok(Object.keys(LONG_SHARD_OF).length >= PROVINCES.length,
+    '映射表只有 ' + Object.keys(LONG_SHARD_OF).length + ' 个省');
+});
+
+await test('长介绍库: 单片体积不回到「整库级」（回归护栏）', () => {
+  // 按首字分 8 片时单片最大 411KB。一省一片后最大 138KB（广东 96 处）。
+  // 超过 200KB 说明分片规则又被合并回去了，详情页首开会被拖慢。
+  const big = LONG_FILES
+    .map(f => ({ f, kb: Math.round(statSync(new URL(f, LONG_DIR)).size / 1024) }))
+    .filter(x => x.kb > 200);
+  assert.deepEqual(big, [], '分片过大：' + big.map(x => x.f + ' ' + x.kb + 'KB').join('、'));
 });
 
 await test('长介绍库: 不再挂讲别处的整段正文', () => {

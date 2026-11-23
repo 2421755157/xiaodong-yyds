@@ -57,9 +57,10 @@
 - 详情页新增独立区块：**来历 · 地标故事**（遗址/寺庙/现代地标）或 **历史沿革**
 - 内容取自维基词条正文，含建造年代、布局沿革、历史事件、名人轶事
   （如中山陵的建造时间线与设计者、黄山得名的传说、岳阳楼从"阅军楼"到"岳阳楼"的演变）
-- **1729 个景点**有长介绍（平均 473 字），超过 180 字自动折叠 + 展开全文
+- **1623 个景点**有长介绍（平均 476 字），超过 180 字自动折叠 + 展开全文
 - 有真实长文时，模板化的「详细解说」自动让位给史料（避免同一段通用文案出现两遍）
-- 按首字哈希分成 8 个分片，打开景点时只加载对应那一片（约 100KB），首屏不受影响
+- **一省一片**（34 片，单篇 8~138KB）：打开一处景点只加载它所在省那一片，
+  最省 4KB、中位 31KB（gzip），首屏完全不受影响
 
 ### 实景全景（线上逛景点）
 - 详情页新增 **🖐 360° 全景 / 宽幅全景** 按钮（仅对有真实全景资源的景点显示）
@@ -249,7 +250,7 @@ python tools/build_pinyin_db.py              # 生成拼音搜索索引 → js/p
 python tools/fetch_images.py --mode gallery --limit 500   # 补景点照片（Wikimedia，备用）
 python tools/export_db.py                   # 导出前端静态库
 node   tools/build_home_stats.mjs            # 生成首页统计常量（导出之后跑，顺序不能反）
-python tools/fetch_long_desc.py              # 导出历史沿革长介绍（分 8 片）
+python tools/fetch_long_desc.py              # 导出历史沿革长介绍（按省分 34 片）
 python tools/fetch_panorama.py               # 抓真实全景图（球面/宽幅）
 python tools/fetch_coords.py                 # 抓景点坐标（维基 + Wikidata，无需密钥）
 python tools/resolve_disambig.py --both      # 消歧义词条重定向到正确条目

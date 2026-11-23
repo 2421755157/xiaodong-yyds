@@ -17,21 +17,22 @@
                                          分城存（与简介/坐标/图片三套库同一套约定），
                                          否则惠州西湖会继承杭州西湖那条正文。
                                          迁移见 tools/rekey_long_desc.py
-    js/long-db-0.js .. js/long-db-7.js  按键首字分 8 片，详情页按需加载单片
+    js/long-db-0.js .. js/long-db-33.js 一省一片，详情页按需加载本省那片
+                                         切片规则见 tools/shard_long.py
 """
 import argparse, json, os, re, sys, time, urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from common import (DATA, JS, NOISE_PAREN, PINYIN_PAREN, ZHW, get_json,
-                    is_disambig, js_export, load_json, save_json, search_title,
+from common import (DATA, NOISE_PAREN, PINYIN_PAREN, ZHW, get_json,
+                    is_disambig, load_json, save_json, search_title,
                     split_key)
 from place_guard import long_reject
+import shard_long
 
 CACHE = os.path.join(DATA, 'long_db.json')
 WORKERS = 12
 MAX_CHARS = 900          # 单个景点的长介绍上限
-CHUNKS = 8
 
 # 到这些标题就截断（正文结束，后面是参考信息/链接堆）
 CUT_HEADS = re.compile(
@@ -92,17 +93,6 @@ def build_long(text, name):
     return body
 
 
-def chunk_of(key):
-    """按「景点名」首字码分片，与键是裸名还是「省|市|名」无关。
-
-    前端只有景点名和完整键两种输入，分片规则若跟着键走，同一处景点在
-    「裸名条目」和「分城条目」下会落到不同分片，详情页就会去错片找正文。
-    固定按名字分，两边永远一致（JS 见 js/app.js longChunkIndex）。
-    """
-    name = key.rsplit('|', 1)[-1]
-    return ord(name[0]) % CHUNKS if name else 0
-
-
 def strip_lead(long_text, short_text):
     """去掉长文开头与短简介重复的部分，避免页面上重复两遍"""
     if not short_text:
@@ -120,17 +110,15 @@ def strip_lead(long_text, short_text):
 
 
 def export_chunks(db):
-    """把 {键: 长介绍} 按键首字码分 8 片写进 js/long-db-*.js"""
-    buckets = [dict() for _ in range(CHUNKS)]
-    for k, v in db.items():
-        buckets[chunk_of(k)][k] = v
-    for i, b in enumerate(buckets):
-        open(os.path.join(JS, 'long-db-%d.js' % i), 'w', encoding='utf-8').write(js_export(
-            b,
-            '// ═══ 景点历史沿革长介绍（分片 %d/%d）═══\n'
-            '// 生成：tools/fetch_long_desc.py。按首字哈希分片，详情页按需加载单片。\n'
-            'export const LONG_DESC_DB_%d = ' % (i + 1, CHUNKS, i)))
-    return buckets
+    """把 {键: 长介绍} 按省切片，写进 js/long-db-*.js。
+
+    分片规则只有一份，在 tools/shard_long.py（--check 可只比对不写盘）。
+    这里以前自己按首字取模分 8 片，前端 longChunkIndex 手抄同一个规则 ——
+    规则改一处忘另一处，正文就整段消失。现在切法归分片工具，抓取只管写源。
+    """
+    save_json(CACHE, db)
+    shard_long.write()
+    return shard_long.plan()[1]
 
 
 def export():
@@ -164,8 +152,8 @@ def export():
     buckets = export_chunks(db)
     save_json(CACHE, db)          # 清洗结果回写缓存，避免下次重复处理
     print('清洗 %d 处（含注音去除与去重），已回写缓存' % cleaned)
-    print('导出 %d 条 → %d 个分片（%s）' % (
-        len(db), CHUNKS, ', '.join('%d:%d' % (i, len(b)) for i, b in enumerate(buckets))))
+    print('导出 %d 条 → %d 个分片（按省，最大 %d 条）' % (
+        len(db), len(buckets), max((len(b) for b in buckets), default=0)))
 
 
 if __name__ == '__main__':

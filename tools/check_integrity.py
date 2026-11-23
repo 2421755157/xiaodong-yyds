@@ -411,11 +411,10 @@ except Exception as e:
 try:
     from place_guard import long_reject                      # noqa: E402
     long_all = {}
-    for _i in range(8):
-        _p = os.path.join(JS, 'long-db-%d.js' % _i)
-        if not os.path.exists(_p):
+    for _f in sorted(os.listdir(JS)):
+        if not (_f.startswith('long-db-') and _f.endswith('.js')):
             continue
-        _src = io.open(_p, encoding='utf-8').read()
+        _src = io.open(os.path.join(JS, _f), encoding='utf-8').read()
         _head = _src.index('export const LONG_DESC_DB_')
         long_all.update(json.loads(_src[_src.index('{', _head):_src.rindex('}') + 1]))
     if not long_all:
@@ -670,6 +669,53 @@ try:
                                             % (_f, _m.group(1)))
 except Exception as e:
     problems.append('importmap / three 自托管校验失败（%s）' % e)
+
+# 21) 长介绍分片：派生文件必须与源库逐条一致，且映射表指得对
+#     长介绍库 11-11 起按「首字取模」分 8 片，单片 213~411KB（gzip 68~155KB）：
+#     打开一处景点要把八分之一全国的长文拖下来（大理洱海实测 336KB）。
+#     现在一省一片（tools/shard_long.py）。分片是 data/long_db.json 的派生缓存，
+#     抓取管线更新了源库却忘了重跑分片工具，详情页就会显示旧正文 —— 只在
+#     部分省份看得出来，最难查。这条把「忘了跑工具」变成硬失败。
+try:
+    sys.path.insert(0, os.path.join(ROOT, 'tools'))
+    import shard_long                                    # noqa: E402
+    lg_files, lg_buckets, lg_map, lg_provs, lg_total = shard_long.plan()
+    lg_drift = []
+    for _p, _text in lg_files.items():
+        _cur = io.open(_p, encoding='utf-8').read() if os.path.exists(_p) else ''
+        if _cur != _text:
+            lg_drift.append(os.path.basename(_p))
+    if lg_drift:
+        problems.append('长介绍分片与源库不一致 %d 个（%s）→ python tools/shard_long.py'
+                        % (len(lg_drift), '、'.join(lg_drift[:3])))
+    if lg_total != sum(len(b) for b in lg_buckets):
+        problems.append('长介绍分片丢了 %d 条（源库 %d 条，分片合计 %d 条）'
+                        % (lg_total - sum(len(b) for b in lg_buckets), lg_total,
+                           sum(len(b) for b in lg_buckets)))
+    # 前端只信 js/long-shard-map.js 这张表：把某省指到别的片，那一省的
+    # 历史沿革就会「请求成功但一条都没有」，页面看着正常、内容静默缺失。
+    # 所以拿**盘上的映射表**回头核每片里的每条键，而不是核刚算出来的那份。
+    _lg_map_src = io.open(os.path.join(JS, 'long-shard-map.js'), encoding='utf-8').read()
+    _lg_at = _lg_map_src.index('LONG_SHARD_OF')
+    _lg_disk = json.loads(_lg_map_src[_lg_map_src.index('{', _lg_at):_lg_map_src.rindex('}') + 1])
+    _lg_spots = json.load(io.open(os.path.join(ROOT, 'data', 'spots_uniq.json'),
+                                  encoding='utf-8'))
+    _lg_cnt = {}
+    for _s in _lg_spots:
+        _lg_cnt[_s['name']] = _lg_cnt.get(_s['name'], 0) + 1
+    _lg_prov_by_name = {_s['name']: _s['prov'] for _s in _lg_spots if _lg_cnt[_s['name']] == 1}
+    _lg_wrong = []
+    for _i, _b in enumerate(lg_buckets):
+        for _k in _b:
+            _prov = _k.split('|')[0] if '|' in _k else _lg_prov_by_name.get(_k)
+            if _lg_disk.get(_prov) != _i:
+                _lg_wrong.append('%s（%s→片%s，实际在片%d）'
+                                 % (_k, _prov, _lg_disk.get(_prov), _i))
+    if _lg_wrong:
+        problems.append('长介绍分片与映射表对不上 %d 条（如 %s）→ python tools/shard_long.py'
+                        % (len(_lg_wrong), '；'.join(_lg_wrong[:2])))
+except Exception as e:
+    problems.append('长介绍分片校验失败（%s）' % e)
 
 print('检查完成：%d 个问题' % len(problems))
 for p in problems:

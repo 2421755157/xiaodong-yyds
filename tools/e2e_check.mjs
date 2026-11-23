@@ -563,7 +563,7 @@ function check(name, ok, detail = '') {
   const srcLink = await cdp.eval("(document.querySelector('#intro-source a')||{}).href || ''");
   check('来源标注链接', srcLink.includes('baike.baidu.com'), srcLink ? '有' : '无（该景点无真实简介时隐藏）');
 
-  // 5b) 历史沿革长介绍（分片按需加载）
+  // 5b) 历史沿革长介绍（按省分片，按需加载）
   await sleep(1200);
   const histVisible = await cdp.eval("!document.getElementById('intro-history').hidden");
   const histText = await cdp.eval("(document.getElementById('hist-text')||{}).textContent || ''");
@@ -571,8 +571,23 @@ function check(name, ok, detail = '') {
   check('历史沿革有内容', histText.length > 60, histText.length + ' 字：' + histText.slice(0, 30) + '…');
   const histTitle = await cdp.eval("(document.getElementById('hist-title')||{}).textContent || ''");
   check('区块标题正确', histTitle.includes('来历') || histTitle.includes('历史'), histTitle);
-  const chunkReq = await cdp.eval("performance.getEntriesByType('resource').filter(r=>/long-db-\\d+\\.js/.test(r.name)).length");
-  check('长介绍分片按需加载', chunkReq >= 1, '已加载 ' + chunkReq + ' 个分片');
+  // 5b-1) 历史沿革只拉「本省」那一片（一省一片，最大 138KB / gzip 约 63KB）。
+  //       以前按景点名首字分 8 片：单片 213~411KB，为了看一处景点 900 字的来历，
+  //       先把八分之一全国的长文拖下来（打开大理洱海实测 336KB）。
+  //       片号来自 js/long-shard-map.js，这里顺带验证「映射表能加载且指得对」——
+  //       表错一位，那一省的历史沿革会请求成功但一条都没有。
+  const longShape = await cdp.eval(`(async () => {
+    const rs = performance.getEntriesByType('resource').map(r => r.name)
+      .filter(u => /long-db-\\d+\\.js/.test(u));
+    const m = await import('./js/long-shard-map.js');
+    const prov = decodeURIComponent(location.hash).replace(/^#\\/?/, '').split('/')[0];
+    return JSON.stringify({ req: rs.map(u => u.split('/').pop()), prov,
+      want: m.LONG_SHARD_OF[prov], n: rs.length });
+  })()`);
+  const ls = JSON.parse(longShape);
+  check('历史沿革只拉本省那一片',
+    ls.n === 1 && ls.req[0] === 'long-db-' + ls.want + '.js',
+    `${ls.prov} → 片${ls.want}，实际请求 ${ls.req.join('、') || '无'}`);
 
   // 5b-2) 有真实长文时，模板化的「详细解说」应让位给真实史料
   // （expandDesc 的模板文案对所有景点都一样，会稀释真实内容）
@@ -1412,16 +1427,20 @@ function check(name, ok, detail = '') {
     hzxh2.txt.slice(0, 30) || '(被清空了)');
 
   // 9h) 分片没下下来，不能把整片景点永久判死
-  //     长介绍库按景点名首字分成 8 片，打开景点时才 import 对应那片。以前失败分支
-  //     会把**空对象**缓存进 longChunkCache：弱网下只要有一次分片请求被中断，
-  //     这一片约 300 个景点在本次会话里就再也看不到历史沿革，只有刷新才恢复
-  //     （本套件"杭州西湖的历史沿革被清空了"偶发失败就是这么来的）。
-  //     现在失败不入缓存，这次先当没有正文，下次打开同片景点会重新请求。
+  //     长介绍库按**省**分片（一省一片），打开景点时才 import 本省那片。以前失败
+  //     分支会把**空对象**缓存进 longChunkCache：弱网下只要有一次分片请求被中断，
+  //     这一片（原先是 1/8 全国，现在是整省）的景点在本次会话里就再也看不到
+  //     历史沿革，只有刷新才恢复（本套件"杭州西湖的历史沿革被清空了"偶发失败
+  //     就是这么来的）。现在失败不入缓存，这次先当没有正文，下次打开同省景点会重试。
   await cdp.navigate(BASE);
   await sleep(3000);
   longBlockHits = 0;
-  longReqCount[7] = 0;                    // 只数这一小段里第 8 片的请求
-  longBlockIdx = 7;                       // 第 8 片：西湖、西柏坡都在这一片
+  // 片号当场从映射表取：一省一片之后「第 8 片」已经没有意义，
+  // 而写死一个片号会在分片规则再变时静默失效（掐的是空片，断言照样绿）。
+  const zjChunk = await cdp.eval(
+    "import('./js/long-shard-map.js').then(m => m.LONG_SHARD_OF['浙江'])");
+  longReqCount[zjChunk] = 0;              // 只数这一小段里浙江那片的请求
+  longBlockIdx = zjChunk;
   await openSpotByHash('浙江', '杭州', '西湖');
   await sleep(1500);
   const blockedHist = await cdp.eval(`(() => {
@@ -1432,11 +1451,11 @@ function check(name, ok, detail = '') {
     longBlockHits === 1 && blockedHist === false,
     '注入失败 ' + longBlockHits + ' 次，历史沿革块可见=' + blockedHist);
 
-  const retry = await openSpotByHash('河北', '石家庄', '西柏坡', 2);
+  const retry = await openSpotByHash('浙江', '杭州', '灵隐寺', 2);
   // 三件事一起判，缺一条都不算恢复：
-  //   ① 弹窗里确实是西柏坡（不是上一处残留的 DOM）
+  //   ① 弹窗里确实是灵隐寺（不是上一处残留的 DOM）
   //   ② 历史沿革真的出来了
-  //   ③ 第 8 片**又发了一次请求**——否则可能只是浏览器把失败结果留在了
+  //   ③ 浙江那片**又发了一次请求**——否则可能只是浏览器把失败结果留在了
   //      模块图里，正文来自别处（这条同时守住"失败不入缓存"的语义）
   const recovered = await waitFor(async () => {
     const raw = await cdp.eval(`(() => {
@@ -1445,13 +1464,13 @@ function check(name, ok, detail = '') {
       return JSON.stringify({ n, len: t.length, t: t.slice(0, 26) });
     })()`);
     const o = JSON.parse(raw);
-    return (o.n === '西柏坡' && o.len > 40) ? o : 0;
+    return (o.n === '灵隐寺' && o.len > 40) ? o : 0;
   }, 12000);
-  check('分片失败后打开同片景点能自动重试（不用刷新）',
-    !!recovered && (longReqCount[7] || 0) >= 2,
+  check('分片失败后打开同省景点能自动重试（不用刷新）',
+    !!recovered && (longReqCount[zjChunk] || 0) >= 2,
     (recovered ? recovered.t : '(仍然为空，分片被永久判死了)')
       + ' / 当前景点=' + (recovered ? recovered.n : retry.name || '(空)')
-      + ' / 第8片请求 ' + (longReqCount[7] || 0) + ' 次');
+      + ' / 浙江片请求 ' + (longReqCount[zjChunk] || 0) + ' 次');
 
   // 10) 欢迎页（首次访客）不做主页才用得上的下载
   //     原先是无条件 renderNav()：新访客还停在「怎么称呼你」那一屏，

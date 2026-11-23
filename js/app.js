@@ -23,6 +23,7 @@ import { loadProvDesc, loadAllDesc, descGet, descHas, descTried,
          descAllLoaded } from './desc-shard.js';
 import { REGION_DESC_DB } from './region-desc-db.js';
 import { PROV_COVER, CITY_COVER } from './cover-db.js';
+import { LONG_SHARD_OF } from './long-shard-map.js';
 import { HOME_STATS } from './home-stats.js';
 import { enhanceDialogs } from './dialog.js';
 
@@ -936,32 +937,40 @@ function openPano(opts) {
     .catch(() => toast('全景组件加载失败，请检查网络后重试', 3000));
 }
 
-// ═══ 历史沿革长介绍（分片按需加载）═══
-// 8 个分片各 ~100KB，打开景点时只加载对应那片。
-// 分片规则必须与 tools/fetch_long_desc.py 的 chunk_of() 完全一致：
-// **按景点名首字取模**，与键是裸名还是「省|市|名」无关 —— 否则裸名条目
-// 会去「省|市|名」算出来的那片里找，正文整段消失（实测踩过）。
-const LONG_CHUNKS = 8;
+// ═══ 历史沿革长介绍（按省分片按需加载）═══
+// 一省一片，共 34 片，单片 8~138KB（gzip 约 4~63KB）。
+// 以前按景点名首字分 8 片：单片 213~411KB（gzip 68~155KB），为了看一处景点
+// 900 字的来历，先把八分之一全国的长文拖下来（打开洱海实测 336KB）。
+//
+// 片号来自生成文件 js/long-shard-map.js，前端只查表不自己算 —— 分片规则
+// （tools/shard_long.py）改了也不会和运行时对不上。
+// 省份认不出来时返回 -1，这一块就不显示：宁可没有历史沿革，也不能去猜一片。
+// 每个省份都有映射由 check_integrity 第 21 项与 unit_test 把关，不允许出现
+// 「省名对不上 → 整省正文静默消失」。
 const longChunkCache = new Map();
-function longChunkIndex(name) {
-  return (name && name.charCodeAt(0)) % LONG_CHUNKS;
+function longChunkIndex(prov) {
+  const i = prov == null ? -1 : LONG_SHARD_OF[prov];
+  return Number.isInteger(i) ? i : -1;
 }
 function loadLongChunk(idx) {
+  if (idx < 0) return Promise.resolve({});
   if (longChunkCache.has(idx)) return longChunkCache.get(idx);
   const p = import('./long-db-' + idx + '.js')
     .then(m => m['LONG_DESC_DB_' + idx] || {})
     .catch(() => {
       // 分片没下下来（弱网、切换网络、请求被中断）时**不能把空对象留在缓存里**：
-      // 缓存的是一整个分片约 300 个景点，一旦留成 {}，本次会话里这一片的历史沿革
+      // 缓存的是一整个省约 48 处景点，一旦留成 {}，本次会话里这一省的历史沿革
       // 就再也出不来，只有刷新页面才恢复。删掉缓存，这次先按"没有正文"处理，
-      // 下次打开同片的景点会重新请求。
+      // 下次打开同省的景点会重新请求。
       longChunkCache.delete(idx);
       return {};
     });
   longChunkCache.set(idx, p);
   return p;
 }
-async function renderHistory(spot) {
+// prov 是该景点所在省的**省名**（与 LONG_SHARD_OF 的键同一口径）。
+// 不给省份时只能当作没有历史沿革：分片是按省切的，猜一片只会取到别人的正文。
+async function renderHistory(spot, prov) {
   const box = $('#intro-history');
   const txt = $('#hist-text');
   const more = $('#hist-more');
@@ -974,7 +983,7 @@ async function renderHistory(spot) {
   // 取的时候先查分城键、再退到裸名（不重名的景点只有裸名）。
   // 只按裸名取会把杭州西湖的正文挂到惠州西湖的历史沿革上。
   const longKey = SPOT_KEY.get(spot) || spot.n;
-  const db = await loadLongChunk(longChunkIndex(spot.n));
+  const db = await loadLongChunk(longChunkIndex(prov));
   const body = db[longKey] || db[spot.n];
   if (!body) { box.hidden = true; return; }
   box.hidden = false;
@@ -1146,7 +1155,7 @@ async function openSpot(prov, city, spot, pushEntry = false) {
   detailEl.hidden = false;
   detailEl.dataset.tpl = '1';
   // 历史沿革长介绍（异步补上，先显示短简介不阻塞）
-  renderHistory(spot);
+  renderHistory(spot, prov.n);
   // 网友热梗评价
   const memes = SPOT_MEMES[spot.t] || SPOT_MEMES.park;
   const picked = pickN(memes, Math.min(3, memes.length), seed);
@@ -1610,7 +1619,7 @@ async function openSpotDetail() {
     try {
       // 与详情页同一套键：3D 里看的也是「这一处」，不能按裸名去取
       const key = spotDescKey(activeCtx.prov, activeCtx.city, activeSpot.name);
-      const db = await loadLongChunk(longChunkIndex(activeSpot.name));
+      const db = await loadLongChunk(longChunkIndex(activeCtx.prov));
       const real = db[key] || db[activeSpot.name];
       if (real) {
         histText.textContent = real;

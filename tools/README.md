@@ -33,7 +33,8 @@ tools/
 ├── build_home_stats.mjs   导出首页统计常量（省得首屏为 4 个数字拉 800KB 的库）
 ├── fill_missing_desc.py   补维基通道没抓到的简介（走百科 openapi + 城市一致性校验）
 ├── build_pinyin_db.py     生成拼音索引（gugong / bdlg 这类输入也能搜）
-├── fetch_long_desc.py    抓历史沿革长介绍 → js/long-db-0..7.js（8 片按需加载）
+├── fetch_long_desc.py    抓历史沿革长介绍 → js/long-db-*.js（按省切片，见 shard_long.py）
+├── shard_long.py         长介绍库一省一片 → js/long-db-*.js + js/long-shard-map.js
 ├── clean_long_desc.py    清洗长介绍：剔掉整段讲别处的正文（幂等，与抓取闸门同一份判定）
 ├── rekey_long_desc.py    长介绍分城键迁移：重名景点按「省|市|名」各存一条（幂等，先 --dry-run）
 ├── place_guard.py        景点文案「张冠李戴」判定：短简介 desc_reject()、长介绍 long_reject()
@@ -380,8 +381,10 @@ await send('Network.clearBrowserCache');   // 关键
 4. `data/long_owners.json` 的人工裁定优先（赛里木湖跨伊犁/博州、壶口瀑布跨晋陕、
    大别山跨鄂皖是同一处景观；丹霞山归韶关、宋城墙归肇庆是整条词条的归属）。
 
-前端 `renderHistory()` 先查分城键再退裸名；分片索引 `chunk_of()`（Python）与
-`longChunkIndex()`（JS）都改成**按键首字**取模，两边必须一致，否则改完键正文会整段消失。
+前端 `renderHistory()` 先查分城键再退裸名。
+
+> 分片规则 11-23 起归 `tools/shard_long.py` 一份（一省一片，片号写在
+> `js/long-shard-map.js`，前端只查表），不再由 Python 与 JS 各手抄一份取模规则。
 
 > 踩坑：改键之前先看 `long_db.json` 里已有的键。已经是分城键的条目要原样保留，
 > 迁移脚本重跑不能把它们再拆一次；`--dry-run` 的「键数 → 键数」就是判据。
