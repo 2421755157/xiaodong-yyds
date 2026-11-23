@@ -40,7 +40,8 @@
     <h1 class="gate-title">天黑了<br>该<span class="gold">出去走走</span>了</h1>
     <p class="gate-sub">白天归生活，夜里归自己。<br>三千山河，随便逛，不赶时间。</p>
     <div class="gate-form">
-      <input id="gate-name" type="text" maxlength="12" placeholder="怎么称呼你？（随口编一个也行）" autocomplete="off">
+      <input id="gate-name" type="text" maxlength="12" placeholder="怎么称呼你？（随口编一个也行）" autocomplete="off"
+             aria-label="你的称呼">
       <button id="gate-enter" class="btn-gold">出门夜游 →</button>
     </div>
     <p class="gate-foot">数据只存在你自己的浏览器里 · 没有人知道你来过</p>
@@ -157,7 +158,7 @@
 <!-- ══════════ 弹窗：景点介绍 ══════════ -->
 <div class="modal" id="intro-modal" hidden>
   <div class="modal-card intro-card">
-    <button class="intro-close" id="intro-x">×</button>
+    <button class="intro-close" id="intro-x" aria-label="关闭景点介绍">×</button>
     <div class="intro-cover" id="intro-cover"></div>
     <div class="intro-body">
       <h3 id="intro-name"></h3>
@@ -183,9 +184,9 @@
         <p class="map-fail" id="map-fail" role="status" hidden>底图暂时加载不出来（网络受限或接口被拦），可用下方「在百度地图打开」查看位置。</p>
         <button class="map-btn map-retry" id="map-retry" type="button" hidden>重新加载底图</button>
         <div class="map-actions">
-          <button class="map-btn on" id="map-view-block">街区</button>
-          <button class="map-btn" id="map-view-area">城区</button>
-          <button class="map-btn" id="map-view-city">全域</button>
+          <button class="map-btn on" id="map-view-block" aria-pressed="true">街区</button>
+          <button class="map-btn" id="map-view-area" aria-pressed="false">城区</button>
+          <button class="map-btn" id="map-view-city" aria-pressed="false">全域</button>
           <a class="map-btn map-link" id="map-open" target="_blank" rel="noopener">在百度地图打开 ↗</a>
           <span class="map-note">底图 © 百度地图</span>
         </div>
@@ -212,7 +213,8 @@
 <!-- ══════════ 弹窗：场景内标志地点解说 ══════════ -->
 <div class="modal" id="spot-detail-modal" hidden>
   <div class="modal-card intro-card">
-    <button class="intro-close" onclick="document.getElementById('spot-detail-modal').hidden=true">×</button>
+    <button class="intro-close" aria-label="关闭解说"
+            onclick="document.getElementById('spot-detail-modal').hidden=true">×</button>
     <div class="intro-cover"><img id="detail-img" alt="" referrerpolicy="no-referrer"></div>
     <div class="intro-body">
       <h3 id="detail-title"></h3>
@@ -236,18 +238,19 @@
     <h3 id="note-title">此刻 · 某处</h3>
     <p class="modal-sub">想点什么就写什么。这里没人看见，也没人评判。</p>
     <div class="note-mood-row" id="note-moods">
-      <button data-mood="1" title="碎掉了">😭</button>
-      <button data-mood="2" title="有点丧">😔</button>
-      <button data-mood="3" title="无波无澜">😐</button>
-      <button data-mood="4" title="还可以">🙂</button>
-      <button data-mood="5" title="活过来了">😄</button>
+      <button data-mood="1" title="碎掉了" aria-label="碎掉了">😭</button>
+      <button data-mood="2" title="有点丧" aria-label="有点丧">😔</button>
+      <button data-mood="3" title="无波无澜" aria-label="无波无澜">😐</button>
+      <button data-mood="4" title="还可以" aria-label="还可以">🙂</button>
+      <button data-mood="5" title="活过来了" aria-label="活过来了">😄</button>
     </div>
     <div class="note-score-row">
-      <label>给这个地方打个分</label>
+      <span class="note-score-label" id="note-score-label">给这个地方打个分</span>
       <div id="note-stars"></div>
-      <b id="note-score-num">8</b>
+      <b id="note-score-num" aria-hidden="true">8</b>
     </div>
-    <textarea id="note-text" rows="4" maxlength="500" placeholder="此刻的风、心里的事、没处说的话……"></textarea>
+    <textarea id="note-text" rows="4" maxlength="500" placeholder="此刻的风、心里的事、没处说的话……"
+              aria-label="此刻想说的话"></textarea>
     <div class="modal-actions">
       <button class="btn-ghost" id="note-cancel">算了</button>
       <button class="btn-gold" id="note-submit">留下足迹</button>
@@ -287,7 +290,8 @@
     <h3>碎碎平安 · 情绪粉碎局</h3>
     <p class="modal-sub">写下来，点粉碎。不保存、不上传、不留证据。<br>碎完就是碎完了，谁也拼不回来。</p>
     <p class="shred-count" id="shred-count"></p>
-    <textarea id="shred-text" rows="5" maxlength="1000" placeholder="把最烦的事、最烦的人、最烦的自己，全写在这儿……"></textarea>
+    <textarea id="shred-text" rows="5" maxlength="1000" placeholder="把最烦的事、最烦的人、最烦的自己，全写在这儿……"
+              aria-label="要粉碎的内容"></textarea>
     <div class="modal-actions">
       <button class="btn-ghost" id="shred-close">先留着</button>
       <button class="btn-danger" id="shred-go">粉 碎 它</button>
@@ -314,25 +318,25 @@
     <p class="fortune-eyebrow">夜游神 · 我的档案</p>
     <div class="profile-avatar" id="profile-avatar">游</div>
     <div class="profile-field">
-      <label>称呼</label>
+      <label for="profile-name">称呼</label>
       <input id="profile-name" type="text" maxlength="12" placeholder="你的夜游代号">
     </div>
     <div class="profile-field">
-      <label>一句话签名</label>
+      <label for="profile-bio">一句话签名</label>
       <input id="profile-bio" type="text" maxlength="40" placeholder="例如：白天搬砖，夜里漫游">
     </div>
     <div class="profile-field">
-      <label>最想去的城市</label>
+      <label for="profile-city">最想去的城市</label>
       <input id="profile-city" type="text" maxlength="10" placeholder="例如：大理、拉萨、成都">
     </div>
     <div class="profile-field">
-      <label>夜游心情</label>
+      <span class="profile-field-label" id="profile-mood-label">夜游心情</span>
       <div class="profile-moods" id="profile-moods">
-        <button class="pmood" data-m="😄">😄</button>
-        <button class="pmood" data-m="🙂">🙂</button>
-        <button class="pmood" data-m="😐">😐</button>
-        <button class="pmood" data-m="😔">😔</button>
-        <button class="pmood" data-m="🌙">🌙</button>
+        <button class="pmood" data-m="😄" aria-label="挺好">😄</button>
+        <button class="pmood" data-m="🙂" aria-label="还可以">🙂</button>
+        <button class="pmood" data-m="😐" aria-label="一般">😐</button>
+        <button class="pmood" data-m="😔" aria-label="有点丧">😔</button>
+        <button class="pmood" data-m="🌙" aria-label="想静静">🌙</button>
       </div>
     </div>
     <div class="profile-stats" id="profile-stats"></div>

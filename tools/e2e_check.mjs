@@ -1569,6 +1569,130 @@ function check(name, ok, detail = '') {
     contrast.length > 0 && worst.ratio >= 4.5,
     '最低 ' + worst.sel + ' ' + worst.ratio + ':1（' + worst.color + '），共测 ' + contrast.length + ' 处');
 
+  // 11b) 单选控件的名字与状态
+  //      足迹弹窗里的 5 个心情表情、10 颗星、档案里的 5 个心情、问卷的每道题，
+  //      原来都只有 emoji /「★」当名字，选中态只靠 .on 换颜色。读屏用户听到的是
+  //      「星 按钮」×10，既不知道这是打分也不知道自己打了几分，10 颗星还要按 10 次 Tab。
+  //      这一组断言守住：组有名字、每项有名字、状态写在 aria-checked 上、Tab 位只有一个。
+  //
+  //      足迹弹窗正常要先进 3D 并拿到指针锁才打得开，无头浏览器拿不到指针锁；
+  //      这里只把弹窗显示出来（不改任何业务状态），验的是控件本身的语义与键盘行为。
+  await cdp.eval("document.getElementById('note-modal').hidden = false");
+  await sleep(400);
+  const rg = JSON.parse(await cdp.eval(`(() => {
+    const stars = document.getElementById('note-stars');
+    const sb = [...stars.querySelectorAll('button')];
+    const moods = document.getElementById('note-moods');
+    const mb = [...moods.querySelectorAll('button')];
+    return JSON.stringify({
+      starRole: stars.getAttribute('role'), starLabel: stars.getAttribute('aria-label') || '',
+      starRoles: [...new Set(sb.map(b => b.getAttribute('role')))].join(','),
+      starNames: sb.map(b => b.getAttribute('aria-label')),
+      starChecked: sb.filter(b => b.getAttribute('aria-checked') === 'true').map(b => b.getAttribute('aria-label')),
+      starTab: sb.filter(b => b.tabIndex === 0).length,
+      moodRole: moods.getAttribute('role'), moodLabel: moods.getAttribute('aria-label') || '',
+      moodNames: mb.map(b => b.getAttribute('aria-label')),
+      moodChecked: mb.filter(b => b.getAttribute('aria-checked') === 'true').map(b => b.getAttribute('aria-label')),
+    });
+  })()`));
+  check('打分是单选组：10 项各带分值，只有当前分被选中',
+    rg.starRole === 'radiogroup' && rg.starLabel.length > 0 && rg.starRoles === 'radio'
+      && rg.starNames.length === 10 && rg.starNames[0] === '1 分' && rg.starNames[9] === '10 分'
+      && rg.starChecked.length === 1 && rg.starChecked[0] === '8 分' && rg.starTab === 1,
+    `${rg.starNames.length} 项，选中 ${rg.starChecked.join('/') || '无'}，Tab 位 ${rg.starTab}`);
+  check('心情按钮不再只有 emoji 当名字，选中态写在 aria-checked',
+    rg.moodRole === 'radiogroup' && rg.moodLabel.length > 0 && rg.moodNames.length === 5
+      && rg.moodNames.every(n => n && !/^[\u{1F300}-\u{1FAFF}]$/u.test(n))
+      && rg.moodChecked.length === 1 && rg.moodChecked[0] === '还可以',
+    `组名「${rg.moodLabel}」，名字 ${rg.moodNames.join('/')}，选中 ${rg.moodChecked.join('/') || '无'}`);
+
+  // 方向键要真的能改分：焦点跟着走，视觉（.on）、语义（aria-checked）、数字三者一致。
+  // 每次 event 派发到 document.activeElement —— 真键盘就是这样，焦点移了事件才落在新星上。
+  const kbScore = JSON.parse(await cdp.eval(`(() => {
+    const sb = [...document.querySelectorAll('#note-stars button')];
+    const before = sb.find(b => b.getAttribute('aria-checked') === 'true');
+    before.focus();
+    const fire = k => document.activeElement.dispatchEvent(
+      new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
+    fire('ArrowRight'); fire('ArrowRight');
+    const up = document.getElementById('note-score-num').textContent;
+    const upChecked = sb.filter(b => b.getAttribute('aria-checked') === 'true').map(b => b.dataset.v).join(',');
+    const upFocused = document.activeElement.dataset ? document.activeElement.dataset.v : '';
+    fire('Home');
+    const home = document.getElementById('note-score-num').textContent;
+    fire('End');
+    const end = document.getElementById('note-score-num').textContent;
+    const lit = sb.filter(b => b.classList.contains('on')).length;
+    return JSON.stringify({ up, upChecked, upFocused, home, end, lit, tab: sb.filter(b => b.tabIndex === 0).length });
+  })()`));
+  check('方向键能改分，焦点/语义/视觉三者同步',
+    kbScore.up === '10' && kbScore.upChecked === '10' && kbScore.upFocused === '10'
+      && kbScore.home === '1' && kbScore.end === '10' && kbScore.lit === 10 && kbScore.tab === 1,
+    `→→ 后 ${kbScore.up} 分（aria=${kbScore.upChecked}，焦点=${kbScore.upFocused}），`
+      + `Home=${kbScore.home} End=${kbScore.end}，点亮 ${kbScore.lit} 颗，Tab 位 ${kbScore.tab}`);
+  await cdp.eval("document.getElementById('note-modal').hidden = true");
+
+  // 11c) 档案弹窗：三个输入框的可见 label 必须真的关联（原来 <label> 没写 for，
+  //      读屏只念 placeholder，一填字名字就没了）；心情组同样要有名字与状态。
+  const prof = JSON.parse(await cdp.eval(`(() => {
+    document.getElementById('profile-modal').hidden = false;
+    const f = id => { const i = document.getElementById(id);
+      return { n: i.labels ? i.labels.length : 0, t: i.labels && i.labels[0] ? i.labels[0].textContent.trim() : '' }; };
+    const moods = document.getElementById('profile-moods');
+    const mb = [...moods.querySelectorAll('button')];
+    const r = {
+      name: f('profile-name'), bio: f('profile-bio'), city: f('profile-city'),
+      moodRole: moods.getAttribute('role'), moodLabel: moods.getAttribute('aria-label') || '',
+      moodNames: mb.map(b => b.getAttribute('aria-label')),
+      xLabel: document.getElementById('intro-x').getAttribute('aria-label') || '',
+      detailClose: (document.querySelector('#spot-detail-modal .intro-close') || {}).ariaLabel || '',
+      gateLabel: document.getElementById('gate-name').getAttribute('aria-label') || '',
+      noteLabel: document.getElementById('note-text').getAttribute('aria-label') || '',
+      shredLabel: document.getElementById('shred-text').getAttribute('aria-label') || '',
+    };
+    document.getElementById('profile-modal').hidden = true;
+    return JSON.stringify(r);
+  })()`));
+  check('档案三个输入框的可见 label 已关联',
+    prof.name.t === '称呼' && prof.bio.t === '一句话签名' && prof.city.t === '最想去的城市'
+      && prof.name.n === 1 && prof.bio.n === 1 && prof.city.n === 1,
+    `${prof.name.t}/${prof.bio.t}/${prof.city.t}`);
+  check('档案心情组有名有状态', prof.moodRole === 'radiogroup' && prof.moodLabel.length > 0
+    && prof.moodNames.length === 5 && prof.moodNames.every(Boolean),
+    `组名「${prof.moodLabel}」：${prof.moodNames.join('/')}`);
+  check('关闭按钮与纯 placeholder 输入框都有可读名字',
+    prof.xLabel.length > 0 && prof.detailClose.length > 0
+      && prof.gateLabel.length > 0 && prof.noteLabel.length > 0 && prof.shredLabel.length > 0,
+    `×按=${prof.xLabel}/${prof.detailClose}，输入框=${prof.gateLabel}/${prof.noteLabel}/${prof.shredLabel}`);
+
+  // 11d) 问卷：每道题是一组单选，组名用题干（否则读屏连念四个选项，听不出在答哪一问）
+  await cdp.eval("document.getElementById('btn-mood-home').click()");
+  const quiz = await waitFor(async () => {
+    const r = await cdp.eval(`(() => {
+      const items = [...document.querySelectorAll('#quiz-body .quiz-item')];
+      if (!items.length) return null;
+      const first = items[0].querySelector('.quiz-opts');
+      const opt = first.querySelector('button');
+      opt.click();
+      const checked = [...first.querySelectorAll('button')].filter(b => b.getAttribute('aria-checked') === 'true');
+      return JSON.stringify({
+        n: items.length,
+        roles: [...new Set(items.map(i => i.querySelector('.quiz-opts').getAttribute('role')))].join(','),
+        labelsOk: items.every(i => (i.querySelector('.quiz-opts').getAttribute('aria-label') || '').indexOf('题') >= 0),
+        checked: checked.length,
+        checkedName: checked[0] ? checked[0].textContent : '',
+        optName: opt.getAttribute('aria-label') || opt.textContent,
+      });
+    })()`);
+    return r ? JSON.parse(r) : null;
+  }, 4000);
+  check('问卷每题是一个单选组，组名用题干，选项可选可读',
+    !!quiz && quiz.n === 4 && quiz.roles === 'radiogroup' && quiz.labelsOk
+      && quiz.checked === 1 && quiz.checkedName === quiz.optName,
+    quiz ? `${quiz.n} 题，组角色 ${quiz.roles}，选中「${quiz.checkedName}」` : '没打开问卷');
+  await cdp.eval("document.getElementById('quiz-close').click()");
+  await sleep(300);
+
   // 12) 减少动效：欢迎页星空必须冻结，但不能冻结成一片空白
   //     入场星空是整站面积最大的持续动效（整屏 110 个点在漂）。之前 CSS 层
   //     已经把卡片入场/悬停/骨架屏全停了，唯独这块 canvas 自己跑 rAF，漏在外面。

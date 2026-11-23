@@ -717,6 +717,31 @@ try:
 except Exception as e:
     problems.append('长介绍分片校验失败（%s）' % e)
 
+# 22) 表单控件的可读名字
+#     最隐蔽的一类是「只有 placeholder 的输入框」：一填字名字就没了，读屏只剩「编辑框」；
+#     <label> 不写 for= 也是同一个结果（可见标签在，语义上却没关联）。
+#     E2E 只能覆盖它点到的那几个 id，这里静态守住 index.html 里的全部控件，
+#     免得以后新加一个输入框又退回「无名字」。
+try:
+    _labelled = set(re.findall(r'<label[^>]*\bfor="([^"]+)"', html))
+    _unnamed = []
+    for _m in re.finditer(r'<(input|textarea|select)\b([^>]*)>', html):
+        _tag, _attrs = _m.group(1), _m.group(2)
+        _typ = (re.search(r'\btype="([^"]+)"', _attrs) or [None, 'text'])[1]
+        if _typ in ('hidden', 'file'):
+            continue          # 隐藏控件与文件选择框由按钮代劳，不参与命名
+        if re.search(r'\baria-label="[^"]+"', _attrs) or 'aria-labelledby=' in _attrs:
+            continue
+        _id = re.search(r'\bid="([^"]+)"', _attrs)
+        if _id and _id.group(1) in _labelled:
+            continue
+        _unnamed.append('<%s%s>' % (_tag, (' #' + _id.group(1)) if _id else ''))
+    if _unnamed:
+        problems.append('表单控件没有可读名字 %d 个（%s）—— 补 aria-label 或 label for='
+                        % (len(_unnamed), '、'.join(_unnamed[:4])))
+except Exception as e:
+    problems.append('表单控件命名校验失败（%s）' % e)
+
 print('检查完成：%d 个问题' % len(problems))
 for p in problems:
     print('  ✗', p)

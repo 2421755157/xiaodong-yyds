@@ -889,7 +889,13 @@ function renderStaticMap(spot, coord) {
   if (retry) {
     retry.onclick = () => { mapDownAt = 0; paint(); };
   }
-  // 视野档位按钮
+  // 视野档位按钮：三段互斥。选中态此前只靠 .on 换色，读屏用户听不出「现在看的是哪一档」；
+  // aria-pressed 与 .on 一起按 mapViewKey 归一，避免换景点后按钮和实际视野对不上。
+  viewBtns.forEach(b => {
+    const on = b.id === 'map-view-' + mapViewKey;
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-pressed', String(on));
+  });
   MAP_VIEWS.forEach(v => {
     const b = $('#map-view-' + v.key);
     if (!b) return;
@@ -897,7 +903,10 @@ function renderStaticMap(spot, coord) {
       mapViewKey = v.key;
       MAP_VIEWS.forEach(o => {
         const ob = $('#map-view-' + o.key);
-        if (ob) ob.classList.toggle('on', o.key === v.key);
+        if (!ob) return;
+        const on = o.key === v.key;
+        ob.classList.toggle('on', on);
+        ob.setAttribute('aria-pressed', String(on));
       });
       paint();
     };
@@ -1643,8 +1652,53 @@ async function openSpotDetail() {
   }
 }
 
+// ═════════ 无障碍单选组 ═════════
+// 站里有四组「从若干项里选一个」的按钮：足迹心情（5 个表情）、打分（10 颗星）、
+// 档案心情（5 个表情）、问卷选项。改之前共同的毛病是：
+//   · 名字只有 emoji 或「★」，读屏念出来是「星 按钮」，既不知道是第几分，也不知道怎么用；
+//   · 选中只靠 .on 换个颜色（WCAG 1.4.1：状态不能只靠颜色传达）；
+//   · 10 颗星要按 10 次 Tab，方向键完全没用。
+// 这里统一补成 radiogroup：容器给组名，每项给「几分 / 哪种心情」的名字与 aria-checked，
+// Tab 只停在选中那一项（roving tabindex），方向键 / Home / End 移动并选中。
+// 点击仍走各按钮原本的监听——这一层只改语义与键盘，不接管业务状态。
+function setupRadioGroup(box, label, labelOf) {
+  const btns = [...box.querySelectorAll('button')];
+  const api = {
+    btns,
+    // 选中下标（0 基）；-1 表示还没选
+    select(i) {
+      btns.forEach((b, k) => {
+        b.setAttribute('aria-checked', String(k === i));
+        b.tabIndex = k === i ? 0 : -1;
+      });
+      // 一个都没选时也得让组能被 Tab 进来，否则键盘用户根本到不了这里
+      if (i < 0 && btns.length) btns[0].tabIndex = 0;
+    },
+  };
+  box.setAttribute('role', 'radiogroup');
+  box.setAttribute('aria-label', label);
+  btns.forEach((b, i) => {
+    b.setAttribute('role', 'radio');
+    b.setAttribute('aria-label', labelOf(b, i));
+    b.addEventListener('keydown', e => {
+      const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
+      let next = null;
+      if (step) next = (i + step + btns.length) % btns.length;   // 首尾循环，和原生 radio 一致
+      else if (e.key === 'Home') next = 0;
+      else if (e.key === 'End') next = btns.length - 1;
+      if (next === null) return;
+      e.preventDefault();
+      btns[next].click();     // 选中逻辑仍由各按钮自己的监听负责
+      btns[next].focus();
+    });
+  });
+  api.select(-1);
+  return api;
+}
+
 // ═════════ 记录弹窗 ═════════
 let noteMood = 4, noteScore = 8;
+let noteStarGroup = null, noteMoodGroup = null, profileMoodGroup = null;
 function openNote() {
   if (!roamer.locked) return;
   roamer.unlock();
@@ -1659,11 +1713,14 @@ function closeNote() { $('#note-modal').hidden = true; }
 function setNoteMood(v) {
   noteMood = v;
   document.querySelectorAll('#note-moods button').forEach(b => b.classList.toggle('on', +b.dataset.mood === v));
+  noteMoodGroup?.select(v - 1);
 }
 function setNoteScore(v) {
   noteScore = v;
   $('#note-score-num').textContent = v;
   document.querySelectorAll('#note-stars button').forEach(b => b.classList.toggle('on', +b.dataset.v <= v));
+  // 视觉上 1..v 颗都点亮（递进感），语义上「得分」只有一个，所以 aria-checked 只挂第 v 颗
+  noteStarGroup?.select(v - 1);
 }
 function submitNote() {
   const p = camera.position;
@@ -1759,18 +1816,23 @@ function openQuiz() {
     div.className = 'quiz-item';
     div.innerHTML = '<p class="quiz-q">' + (qi + 1) + '. ' + item.q + '</p><div class="quiz-opts"></div>';
     const optsDiv = div.querySelector('.quiz-opts');
-    item.opts.forEach(opt => {
+    const group = { ref: null };
+    item.opts.forEach((opt, oi) => {
       const btn = document.createElement('button');
       btn.className = 'quiz-opt';
       btn.textContent = opt.text;
       btn.addEventListener('click', () => {
         optsDiv.querySelectorAll('.quiz-opt').forEach(b => b.classList.remove('on'));
         btn.classList.add('on');
+        group.ref?.select(oi);
         quizAnswers[qi] = opt;
         checkQuizReady(picked.length);
       });
       optsDiv.appendChild(btn);
     });
+    // 一组选项就是一道单选题：组名用题干，否则读屏只会连着念四个选项，
+    // 听不出它们在答哪一问。
+    group.ref = setupRadioGroup(optsDiv, '第 ' + (qi + 1) + ' 题：' + item.q, b => b.textContent);
     body.appendChild(div);
   });
   $('#quiz-submit').disabled = true;
@@ -1956,6 +2018,7 @@ function bind() {
 
   document.querySelectorAll('#note-moods button').forEach(b =>
     b.addEventListener('click', () => setNoteMood(+b.dataset.mood)));
+  noteMoodGroup = setupRadioGroup($('#note-moods'), '此刻的心情', b => b.getAttribute('aria-label'));
   const stars = $('#note-stars');
   for (let i = 1; i <= 10; i++) {
     const b = document.createElement('button');
@@ -1963,6 +2026,11 @@ function bind() {
     b.addEventListener('click', () => setNoteScore(i));
     stars.appendChild(b);
   }
+  noteStarGroup = setupRadioGroup(stars, '给这个地方打个分，满分 10 分', (b, i) => (i + 1) + ' 分');
+  profileMoodGroup = setupRadioGroup($('#profile-moods'), '夜游心情', b => b.getAttribute('aria-label'));
+  // 和 openNote() 的默认值保持一致：控件初始状态就该是「还可以 + 8 分」，
+  // 否则「视觉上亮着第 4 个心情、语义上一个都没选」这种错位会一直躺在那儿。
+  setNoteMood(4);
   setNoteScore(8);
   $('#note-cancel').addEventListener('click', () => { closeNote(); $('#scene-canvas').requestPointerLock?.(); });
   $('#note-submit').addEventListener('click', submitNote);
@@ -1984,10 +2052,11 @@ function bind() {
   $('#btn-profile').addEventListener('click', openProfile);
   $('#profile-close').addEventListener('click', () => { $('#profile-modal').hidden = true; });
   $('#profile-save').addEventListener('click', saveProfile);
-  document.querySelectorAll('.pmood').forEach(b => {
+  document.querySelectorAll('.pmood').forEach((b, i) => {
     b.addEventListener('click', () => {
       document.querySelectorAll('.pmood').forEach(x => x.classList.remove('on'));
       b.classList.add('on');
+      profileMoodGroup?.select(i);
     });
   });
 }
@@ -2073,10 +2142,11 @@ function openProfile() {
   $('#profile-bio').value = p.bio || '';
   $('#profile-city').value = p.city || '';
   $('#profile-avatar').textContent = (store.data.user?.name || '游')[0];
-  // 心情选中
+  // 心情选中（语义与视觉一起同步：只看颜色的话读屏用户不知道选的是哪个）
   document.querySelectorAll('.pmood').forEach(b => {
     b.classList.toggle('on', b.dataset.m === p.mood);
   });
+  profileMoodGroup?.select(p.mood ? profileMoodGroup.btns.findIndex(b => b.dataset.m === p.mood) : -1);
   // 统计
   const fpCount = store.data.footprints.length;
   const spotCount = Object.keys(store.data.visits).length;

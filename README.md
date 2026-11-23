@@ -207,9 +207,9 @@
 ## 质量保障
 
 ```bash
-python tools/check_integrity.py   # 静态检查：DOM id / import 路径 / 导出名
-node tools/unit_test.mjs          # 单元测试：纯函数 79 项（无需浏览器）
-node tools/e2e_check.mjs          # 端到端：真实浏览器跑 126 项交互断言
+python tools/check_integrity.py   # 静态检查：DOM id / import 路径 / 导出名 / 表单可读名字
+node tools/unit_test.mjs          # 单元测试：纯函数 86 项（无需浏览器）
+node tools/e2e_check.mjs          # 端到端：真实浏览器跑 133 项交互断言
 npx eslint js/ tools/ -c eslint.config.mjs   # 代码风格与潜在缺陷
 ```
 
@@ -343,6 +343,11 @@ node server.cjs
   键盘用户几乎看不出在哪 —— 现在对 `:focus-visible` 补金色聚焦环（鼠标点击不触发）
 - **尊重系统偏好**：`prefers-reduced-motion` 下关闭入场动画与所有位移动效
 - **读屏播报**：提示条与搜索结果容器是 `aria-live`，变化会被念出来
+- **单选控件有名有态**：足迹打分（10 颗星）、两组心情（5 个表情）、问卷选项都是
+  `role="radiogroup"`，每项自带「8 分」「还可以」这样的名字与 `aria-checked`；
+  Tab 只停一项，方向键 / Home / End 直接改选（10 颗星不再需要按 10 次 Tab）
+- **表单有标签**：档案、称呼、足迹留言都有 `aria-label` 或真正 `for=` 关联的 `<label>`，
+  不再靠 placeholder 顶名字（一填字名字就没了）
 
 ## 免责声明
 
