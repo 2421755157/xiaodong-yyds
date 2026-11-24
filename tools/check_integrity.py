@@ -5,7 +5,7 @@
 2) 所有 import 路径是否有对应文件
 3) 所有 addEventListener / querySelector 绑定的关键元素是否存在
 """
-import io, json, os, re, sys
+import io, json, os, re, struct, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 JS = os.path.join(ROOT, 'js')
@@ -741,6 +741,72 @@ try:
                         % (len(_unnamed), '、'.join(_unnamed[:4])))
 except Exception as e:
     problems.append('表单控件命名校验失败（%s）' % e)
+
+# 23) 主图分辨率：卡片要 632 设备像素，别拿 400px 的图糊上去
+#     卡片与详情封面在 2x 屏上渲染宽 316 CSS px（e2e 实测），需要 632 设备像素。
+#     早期管线用的是 360 图搜缩略图（多为 400×266），在手机上被放大 1.6 倍。
+#     2026-11-24 按百科原图重制了 205 张（400 → 800 宽），剩下 93 张确实没有
+#     更大的源（百科原图本身只有 500–600 宽，或词条属别处不能采信），
+#     逐条记在 data/img_small_ok.json 里并写明原因。
+#     双向守：新出现的偏小主图必须记账；账上的条目变大了也要销账，不留僵尸。
+try:
+    def _img_w(path):
+        """读 JPEG/PNG 宽高，不依赖 Pillow（CI 上不一定装）。"""
+        with open(path, 'rb') as f:
+            head = f.read(262144)
+        if head[:2] == b'\xff\xd8':
+            i = 2
+            while i < len(head) - 9:
+                if head[i] != 0xFF:
+                    i += 1
+                    continue
+                m = head[i + 1]
+                if m in (0xC0, 0xC1, 0xC2, 0xC3):
+                    h, w = struct.unpack('>HH', head[i + 5:i + 9])
+                    return w, h
+                if m in (0xD8, 0xD9, 0x01) or 0xD0 <= m <= 0xD7:
+                    i += 2
+                    continue
+                i += 2 + struct.unpack('>H', head[i + 2:i + 4])[0]
+            return None
+        if head[:8] == b'\x89PNG\r\n\x1a\n':
+            w, h = struct.unpack('>II', head[16:24])
+            return w, h
+        return None
+
+    _sm_ok = json.load(io.open(os.path.join(ROOT, 'data', 'img_small_ok.json'), encoding='utf-8'))
+    _sm_db = js_obj(os.path.join(JS, 'spot-images-db.js'), 'SPOT_IMAGES_DB')
+    _sm_src = json.load(io.open(os.path.join(ROOT, 'data', 'img_db.json'), encoding='utf-8'))
+    _sm_spots = json.load(io.open(os.path.join(ROOT, 'data', 'spots_uniq.json'), encoding='utf-8'))
+    _sm_cnt = {}
+    for _s in _sm_spots:
+        _sm_cnt[_s['name']] = _sm_cnt.get(_s['name'], 0) + 1
+    _sm_small, _sm_stale = [], []
+    for _s in _sm_spots:
+        _k = ('%s|%s|%s' % (_s['prov'], _s['city'], _s['name'])) \
+            if _sm_cnt[_s['name']] > 1 else _s['name']
+        _e = _sm_db.get(_k) or _sm_db.get(_s['name'])
+        if not _e:
+            continue                     # 没主图是另一回事（图库缺项），这里只管分辨率
+        _p = (_sm_src.get(_k) or _sm_src.get(_s['name']) or {}).get('u') or ''
+        if not _p or not os.path.exists(os.path.join(ROOT, _p)):
+            continue
+        _wh = _img_w(os.path.join(ROOT, _p))
+        if not _wh:
+            continue
+        if _wh[0] < 480 and _k not in _sm_ok:
+            _sm_small.append('%s（%dpx）' % (_k, _wh[0]))
+        elif _wh[0] >= 480 and _k in _sm_ok:
+            _sm_stale.append(_k)
+    if _sm_small:
+        problems.append('主图偏小（<480px，2x 屏会放大 1.6 倍）%d 张（%s）'
+                        '→ python tools/upgrade_small_images.py；确实无大图的写进 data/img_small_ok.json'
+                        % (len(_sm_small), '、'.join(_sm_small[:3])))
+    if _sm_stale:
+        problems.append('img_small_ok.json 里有 %d 条已经不小了，白名单要销账（%s）'
+                        % (len(_sm_stale), '、'.join(_sm_stale[:3])))
+except Exception as e:
+    problems.append('主图分辨率校验失败（%s）' % e)
 
 print('检查完成：%d 个问题' % len(problems))
 for p in problems:

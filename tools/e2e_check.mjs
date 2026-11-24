@@ -1345,6 +1345,20 @@ function check(name, ok, detail = '') {
     kf.name === '铁塔' && kf.desc.indexOf('济宁') < 0 && kf.desc.indexOf('崇觉寺') < 0,
     kf.desc.slice(0, 34) || '(弹窗未打开)');
 
+  // 详情主图的像素供给：卡片/封面在 2x 屏上渲染 316 CSS px，要 632 设备像素。
+  // 开封铁塔原来挂的是图搜缩略图 400×266（放大 1.6 倍，糊），2026-11-24 起
+  // 按百科原图重制成 800 宽。这条守「真到了浏览器也够大」，不只是数据层面数字好看。
+  // 注意封面在 #intro-cover 里（不是 3D 场景那个 #detail-img），且图库懒加载，
+  // 直达详情时先占位、库就绪后回填 —— 要等，不能立刻读。
+  const kfImg = await waitFor(async () => {
+    const v = await cdp.eval("(()=>{const i=document.querySelector('#intro-cover img');" +
+      "return i&&i.complete&&i.naturalWidth>0?{w:i.naturalWidth,h:i.naturalHeight,dt:i.src.slice(0,5)}:0;})()");
+    return v && v.w > 0 ? v : 0;
+  }, 8000);
+  check('详情主图不是被放大的小图（开封铁塔 ≥700px 宽）',
+    !!kfImg && kfImg.w >= 700 && kfImg.h >= 400,
+    kfImg ? kfImg.w + 'x' + kfImg.h : '(主图一直没解码出来)');
+
   // 人工拉黑（data/desc_block.json）的两处：词条标题对得上、正文却完全是另一样东西，
   // 自动校验只能判「地域」，这两条只能靠黑名单守。西塘是宁波的西塘河、
   // 安阳岳飞庙拿到的是开封朱仙镇的庙，都属同省异市，跨省规则拦不住。

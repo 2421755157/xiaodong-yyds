@@ -23,6 +23,7 @@ tools/
 ├── fetch_images.py        抓照片（主图 / 补充图组）→ data/img_db.json
 ├── fetch_baike_api.py     ★ 主通道：百科 openapi 摘要 + 360 图搜照片（无需浏览器）
 ├── download_baike_img.py  下载图片到 img/baike/ 并压到 800px（同源托管）
+├── upgrade_small_images.py 把早期 400px 主图按百科原图重制成 800px（幂等，账本 img_upgrade.json）
 ├── merge_baike.py         把百科图文并入 img_db / desc_db / long_db（--names 只并指定景点）
 ├── baidu_retry.mjs        百科 HTML 通道低频重试（自动拉起/关闭无头浏览器）
 ├── fetch_baike.mjs        百科 HTML 通道（需无头浏览器，被风控时不可用）

@@ -130,6 +130,15 @@
 - 三级换源：缩略图 → **原图域（不同域名，主域超时仍可加载）** → 官方文件路径接口
 - 封面/图集/卡片统一走容错通道，失败自动降级为城市配色
 
+### 主图分辨率
+卡片与详情封面在 2 倍屏上渲染宽 316 CSS px，需要 632 设备像素。早期管线用的是
+360 图搜缩略图（多为 400×266），在手机上被放大 1.6 倍，糊得明显；后来主通道改成
+百科原图直出（≥800 宽）。2026-11 把剩下 205 张偏小的按**同一个已核过省市的词条**
+重制成 800 宽（`tools/upgrade_small_images.py`，覆盖原文件、路径不变、重跑幂等），
+另有 93 张确实没有更大的源（百科原图本身 500–600 宽，或词条属别处不能采信），
+逐条记在 `data/img_small_ok.json` 并写明原因。`check_integrity.py` 第 23 项双向守：
+新增偏小主图必须记账，账上条目变大要销账。
+
 ### 网址即位置
 - 地址栏同步当前层级：`#/江苏` → 城市列表，`#/江苏/无锡` → 景点列表
 - 链接可直接分享，刷新不丢位置；下次进入自动回到上次浏览的省市
@@ -209,7 +218,7 @@
 ```bash
 python tools/check_integrity.py   # 静态检查：DOM id / import 路径 / 导出名 / 表单可读名字
 node tools/unit_test.mjs          # 单元测试：纯函数 86 项（无需浏览器）
-node tools/e2e_check.mjs          # 端到端：真实浏览器跑 133 项交互断言
+node tools/e2e_check.mjs          # 端到端：真实浏览器跑 134 项交互断言
 npx eslint js/ tools/ -c eslint.config.mjs   # 代码风格与潜在缺陷
 ```
 
@@ -241,6 +250,7 @@ XSS 转义、图片去重，以及**按需加载后的「未就绪」状态**—
 node tools/build-spot-index.mjs            # 重建景点/省市索引
 python tools/fetch_baike_api.py --all      # ★ 主通道：百科 openapi 摘要 + 图搜照片（无浏览器）
 python tools/download_baike_img.py         # 把图片下载到 img/baike/ 并压到 800px（同源托管）
+python tools/upgrade_small_images.py       # 早期 360 缩略图（400px）按百科原图重制成 800px
 python tools/merge_baike.py                # 并入 img_db / desc_db / long_db
 python tools/fix_remote_images.py          # 修死链图源 + 把 CDN 原图换成 720px 缩放地址
 python tools/build_covers.py               # 生成省市卡片封面 → js/cover-db.js + img/cover/
