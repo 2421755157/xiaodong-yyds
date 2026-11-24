@@ -17,6 +17,13 @@ place_guard.long_reject()，人工核验过确实讲的是本市的写进 data/l
 放行（盘山正文里出现「北京市旅游局批准 5A」、横店影视城里有「香港街」，
 按规则都会被误伤）。
 
+11-24 补的第二类：**同名异地清单页**。整段是「万佛山 (东安)…万佛山 (舒城)…」
+这种各地同名景点的罗列，正文里没有「可以指」，老的消歧义判据抓不到，
+于是遂宁灵泉寺的历史沿革成了鄂州/汕头/柳州五座寺庙的清单。判据见
+common.is_list_page()。另有几条短简介是对的、长介绍却配到了同名的另一处
+（潮州牌坊街 → 济宁的牌坊街礼拜堂），既不能整条拉黑也没法用通用规则判，
+记在 data/long_block.json（只挡长介绍，短简介照常保留）。
+
 剔掉的正文不删档：连同原因一起存进 data/long_dropped.json，可复查可回滚。
 
 用法：
@@ -37,6 +44,7 @@ CACHE = os.path.join(DATA, 'long_db.json')
 SPOTS = os.path.join(DATA, 'spots_uniq.json')
 OK_CACHE = os.path.join(DATA, 'long_ok.json')
 BLOCK_CACHE = os.path.join(DATA, 'desc_block.json')
+LONG_BLOCK_CACHE = os.path.join(DATA, 'long_block.json')
 DROP_CACHE = os.path.join(DATA, 'long_dropped.json')
 
 
@@ -48,14 +56,22 @@ def places_by_name():
     return m
 
 
-def audit(db, places, ok, blocked):
-    """返回 [(名字, 原因)]"""
+def audit(db, places, ok, blocked, long_block):
+    """返回 [(键, 原因)]
+
+    键可能是裸名，也可能是「省|市|名」：清单页判定与人工拉黑都按**景点名**查，
+    拿整个键去比对永远查不到（「福建|泉州|开元寺」不是景点名），所以先拆出名字。
+    """
     bad = []
-    for name in sorted(db):
-        why = long_reject(db[name], places.get(name, []),
-                          ok=name in ok, blocked=name in blocked)
+    for key in sorted(db):
+        parts = key.split('|')
+        name = parts[-1]
+        own = [(parts[0], parts[1])] if len(parts) == 3 else places.get(name, [])
+        why = long_reject(db[key], own,
+                          ok=name in ok, blocked=name in blocked,
+                          name=name, long_block=long_block.get(name))
         if why:
-            bad.append((name, why))
+            bad.append((key, why))
     return bad
 
 
@@ -71,12 +87,14 @@ def main():
     places = places_by_name()
     ok = load_json(OK_CACHE, {})
     blocked = load_json(BLOCK_CACHE, {})
+    long_block = load_json(LONG_BLOCK_CACHE, {})
 
-    bad = audit(db, places, ok, blocked)
+    bad = audit(db, places, ok, blocked, long_block)
     print('长介绍 %d 条，判定「讲的是别处」%d 条' % (len(db), len(bad)))
-    for name, why in bad:
+    for key, why in bad:
+        name = key.split('|')[-1]
         where = '、'.join('%s/%s' % (p, c) for p, c in places.get(name, [])) or '（无此景点）'
-        print('  %-10s %-22s %s' % (name, where, why))
+        print('  %-22s %-22s %s' % (key, where, why))
     if a.dry_run:
         print('\n--dry-run：未改动任何文件')
         return 0
@@ -86,11 +104,12 @@ def main():
         return 0
 
     dropped = load_json(DROP_CACHE, {})
-    for name, why in bad:
-        dropped[name] = {'reason': why,
-                         'places': places.get(name, []),
-                         'text': db[name]}
-        db.pop(name, None)
+    for key, why in bad:
+        name = key.split('|')[-1]
+        dropped[key] = {'reason': why,
+                        'places': places.get(name, []),
+                        'text': db[key]}
+        db.pop(key, None)
     save_json(DROP_CACHE, dropped)
     save_json(CACHE, db)
     buckets = export_chunks(db)

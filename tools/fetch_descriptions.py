@@ -186,11 +186,12 @@ def desc_ok(text, name, city, prov):
 
     三道关：不是消歧义页、不是同名作品/机构、（place_guard.desc_reject）
     正文讲的确实是本市这一处 —— 泛名景点（长岛 / 铁塔 / 大峡谷）栽在最后一条上。
-    站点模板文字与物种词条也在 desc_reject 里，与 check_integrity 用的是同一份。
+    站点模板文字与物种词条也在 desc_reject 里，与 check_integrity 用的是同一份；
+    「同名异地清单页」（南禅寺 (五台)…南禅寺 (无锡)…）要拿景点名才判得出来。
     """
     if not text or off_topic(text, name):
         return False
-    return desc_reject(text, city, prov) is None
+    return desc_reject(text, city, prov, name=name) is None
 
 
 def locate_scoped(name, city, prov):
@@ -296,7 +297,8 @@ def do_spots(limit):
         s = by_key.get(k)
         if not s:
             continue
-        reason = desc_reject(db[k][0], s.get('city', ''), s.get('prov', ''))
+        reason = desc_reject(db[k][0], s.get('city', ''), s.get('prov', ''),
+                             name=s['name'])
         if reason:
             wrong.append((k, s['name'], reason))
             db.pop(k)

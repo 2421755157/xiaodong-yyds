@@ -183,6 +183,7 @@ if __name__ == '__main__':
             places.setdefault(s['name'], []).append((s.get('prov', ''), s.get('city', '')))
         ok_set = load_json(os.path.join(DATA, 'long_ok.json'), {})
         blocked = load_json(os.path.join(DATA, 'desc_block.json'), {})
+        long_block = load_json(os.path.join(DATA, 'long_block.json'), {})
 
         stat = {'fail': 0, 'short': 0, 'disambig': 0, 'wrong': 0}
 
@@ -208,7 +209,8 @@ if __name__ == '__main__':
                 stat['short'] += 1
                 return key, body
             why = long_reject(body, own,
-                              ok=name in ok_set, blocked=name in blocked)
+                              ok=name in ok_set, blocked=name in blocked,
+                              name=name, long_block=long_block.get(name))
             if why:
                 stat['wrong'] += 1
                 return key, ''

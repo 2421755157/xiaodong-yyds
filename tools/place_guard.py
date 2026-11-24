@@ -26,7 +26,7 @@
 """
 import re
 
-from common import is_disambig   # 消歧义判定只此一份，别在两处各写一套正则
+from common import is_disambig, is_list_page   # 消歧义/清单页判定只此一份，别在两处各写一套正则
 
 # 省级名（去掉「省/市/自治区/特别行政区」后缀后的写法）
 PROV_SUFFIX = re.compile(r'(省|市|自治区|特别行政区|壮族|回族|维吾尔|自治州)+$')
@@ -165,12 +165,14 @@ WORK_WORDS = ('图书', '电视剧', '电影', '歌曲', '评书', '小说', '�
 _SPECIES = re.compile(r'[（(]\s*学名')
 
 
-def desc_reject(text, city, prov):
+def desc_reject(text, city, prov, name=None):
     """短简介能不能挂到这处景点上。返回原因；None 表示可用。
 
     text  简介正文（已清洗）
     city  景点所在市
     prov  景点所在省
+    name  景点名。给了才判得了「同名异地清单页」——判据是名字后面跟的括号地名，
+          不知道名字就无从下手；老的调用点不传也不影响其余几道闸。
     """
     if not text:
         return '空正文'
@@ -179,6 +181,8 @@ def desc_reject(text, city, prov):
         return '站点自述 / 索引页模板文字'
     if is_disambig(text):
         return '消歧义页'
+    if is_list_page(text, name):
+        return '同名异地清单页（各地同名景点罗列）'
     if _SPECIES.search(head):
         return '物种词条（学名开头），讲的是动植物'
     work = next((w for w in WORK_WORDS if w in head[:40]), None)
@@ -187,15 +191,19 @@ def desc_reject(text, city, prov):
     return mismatch(text, city, prov)
 
 
-def long_reject(text, places, ok=False, blocked=False):
+def long_reject(text, places, ok=False, blocked=False, name=None, long_block=None):
     """长介绍能不能挂到这个景点上。返回原因；None 表示可用。
 
-    text     长介绍正文
-    places   该名字对应的 [(prov, city), ...]。重名景点（西湖 / 南湖 / 丹霞山）
-             只要有一处对得上就算可用，所以是「全部都错位」才判死。
-    ok       人工核验过的白名单条目（data/long_ok.json）
-    blocked  短简介已拉黑的景点（data/desc_block.json）：维基没有对等词条，
-             抓到的正文必然是同名的别的事物。
+    text       长介绍正文
+    places     该名字对应的 [(prov, city), ...]。重名景点（西湖 / 南湖 / 丹霞山）
+               只要有一处对得上就算可用，所以是「全部都错位」才判死。
+    ok         人工核验过的白名单条目（data/long_ok.json）
+    blocked    短简介已拉黑的景点（data/desc_block.json）：维基没有对等词条，
+               抓到的正文必然是同名的别的事物。
+    name       景点名，用于「同名异地清单页」判定（同 desc_reject）。
+    long_block 只针对长介绍的人工拉黑理由（data/long_block.json）。有些正文
+               短简介是对的、长介绍却是同名的另一处（潮州牌坊街配到了济宁的
+               牌坊街礼拜堂），既不能拉黑整个景点，也没法用通用规则判。
     """
     if not text:
         return '空正文'
@@ -205,6 +213,10 @@ def long_reject(text, places, ok=False, blocked=False):
         return '站点介绍 / 索引页模板文字'
     if is_disambig(text):
         return '消歧义页'
+    if long_block:
+        return long_block
+    if is_list_page(text, name):
+        return '同名异地清单页（各地同名景点罗列）'
     if blocked:
         return '短简介已拉黑（维基无对等词条，正文是别的事物）'
     if not places:

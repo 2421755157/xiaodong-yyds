@@ -217,8 +217,8 @@
 
 ```bash
 python tools/check_integrity.py   # 静态检查：DOM id / import 路径 / 导出名 / 表单可读名字
-node tools/unit_test.mjs          # 单元测试：纯函数 86 项（无需浏览器）
-node tools/e2e_check.mjs          # 端到端：真实浏览器跑 134 项交互断言
+node tools/unit_test.mjs          # 单元测试：纯函数 89 项（无需浏览器）
+node tools/e2e_check.mjs          # 端到端：真实浏览器跑 137 项交互断言
 npx eslint js/ tools/ -c eslint.config.mjs   # 代码风格与潜在缺陷
 ```
 
@@ -236,6 +236,12 @@ XSS 转义、图片去重，以及**按需加载后的「未就绪」状态**—
 位置小地图、视野切换、街景按钮能力校验、灯箱、搜索（含命中简介正文）、3D 场景、
 控制台零报错。
 
+**「讲的是不是这一处」是独立的一道闸门**：短简介、长介绍入库前都过
+`tools/place_guard.py`——地域错位（「长岛」是纽约长岛）、消歧义页、同名作品/物种、
+以及同名异地清单页（「万佛山 (东安)…万佛山 (凤冈)…」这种各地罗列，判据在
+`common.is_list_page()`）。判死的正文不删档，连同原因记在 `data/desc_dropped.json` /
+`data/long_dropped.json` 里可复查；只有长介绍错位、短简介仍对的，记
+`data/long_block.json` 单独拉黑，不连坐。
 其中 4 条专门守首屏加载策略，防止以后又被随手 `import` 回去：
 静态依赖扫描（`app.js` 里不许出现 `three` / `scenes.js` / `roam.js` / `panorama.js`）、
 按需模块的下载时序（必须晚于 `app.js` 执行完成）、以及进入对应层级后确实已加载。
@@ -268,6 +274,8 @@ python tools/fetch_poiid.py                  # 采集 poiid（需百度「地点
 python tools/probe_baidu_api.py --write      # 探测百度各服务开通状态 → config.js
 python tools/probe_staticmap_params.py       # 静态图参数边界备忘（防踩坑）
 python tools/clean_long_disambig.py          # 清洗长介绍里的消歧义残留
+python tools/clean_long_desc.py              # 长介绍整段讲别处 / 同名异地清单页
+python tools/clean_desc.py                   # 简介整段讲别处（剔完自动重导出分片与首页统计）
 node   tools/baidu_retry.mjs                 # 百科 HTML 通道低频重试（风控解封后自动补抓）
 node   tools/fetch_baike.mjs --all           # 百科 HTML 通道（需无头浏览器，被风控时用不了）
 ```

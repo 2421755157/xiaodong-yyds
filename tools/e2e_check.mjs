@@ -1400,6 +1400,26 @@ function check(name, ok, detail = '') {
     js2.indexOf('朔州') < 0 && js2.indexOf('怀仁') < 0,
     js2 ? js2.slice(0, 34) : '(无长介绍，符合预期)');
 
+  // 9f-2) 同名异地清单页：整段是「万佛山 (东安)…万佛山 (凤冈)…」这种各地同名
+  //      景点的罗列，正文里没有「可以指」，老的消歧义闸门抓不到。页面上表现为
+  //      遂宁灵泉寺的历史沿革是鄂州/汕头/柳州五座寺庙的清单。
+  //      另有两条是短简介对、长介绍配到了同名的另一处（潮州牌坊街 → 济宁），
+  //      记在 data/long_block.json，只挡长介绍。
+  const pfj = await longTextOf('广东', '潮州', '牌坊街');
+  check('历史沿革不串城（潮州牌坊街不写济宁礼拜堂）',
+    pfj.indexOf('济宁') < 0 && pfj.indexOf('礼拜堂') < 0,
+    pfj ? pfj.slice(0, 34) : '(无长介绍，符合预期)');
+
+  const dcs = await longTextOf('黑龙江', '齐齐哈尔', '大乘寺');
+  check('历史沿革不串城（齐齐哈尔大乘寺不写邯郸）',
+    dcs.indexOf('邯郸') < 0,
+    dcs ? dcs.slice(0, 34) : '(无长介绍，符合预期)');
+
+  const lqs = await longTextOf('四川', '遂宁', '灵泉寺');
+  check('历史沿革不再是同名景点清单（遂宁灵泉寺不写鄂州/汕头）',
+    lqs.indexOf('鄂州') < 0 && lqs.indexOf('汕头') < 0 && lqs.indexOf('柳州市') < 0,
+    lqs ? lqs.slice(0, 34) : '(无长介绍，符合预期)');
+
   // 反向守一条：正常的景点不能因为清洗被连带清空
   const zzy = await longTextOf('江苏', '苏州', '拙政园');
   check('正常景点的历史沿革还在（拙政园）',

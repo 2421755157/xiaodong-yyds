@@ -321,7 +321,7 @@ try:
         txt = desc_db.get(key)
         if not txt:
             continue
-        why = desc_reject(txt, s.get('city', ''), s.get('prov', ''))
+        why = desc_reject(txt, s.get('city', ''), s.get('prov', ''), name=s['name'])
         if why:
             misplaced.append('%s %s/%s（%s）' % (s['name'], s['prov'], s['city'], why))
     if misplaced:
@@ -407,6 +407,10 @@ except Exception as e:
 #     惠州西湖照样挂杭州那条。所以现在还要校验键本身——
 #       · 重名景点（跨市同名）不许再有裸名键，必须是「省|市|名」
 #       · 分城键必须能对上列表里真实存在的那一处
+#     11-24 又补一类：**同名异地清单页**（「万佛山 (东安)…万佛山 (凤冈)…」）。
+#     它没有「可以指」这种关键词，老的消歧义判据抓不到，于是遂宁灵泉寺的
+#     历史沿革成了鄂州/汕头/柳州五座同名寺庙的清单。判据见 common.is_list_page()，
+#     人工只能拉长介绍的记在 data/long_block.json（短简介仍保留）。
 #     校验的是导出的 js/long-db-*.js（用户实际拿到的），data 改了忘导出会在这里露馅。
 try:
     from place_guard import long_reject                      # noqa: E402
@@ -429,7 +433,9 @@ try:
                                 encoding='utf-8'))
         _blk = json.load(io.open(os.path.join(ROOT, 'data', 'desc_block.json'),
                                  encoding='utf-8'))
-        _bad, _leak, _ghost = [], [], []
+        _lblk = json.load(io.open(os.path.join(ROOT, 'data', 'long_block.json'),
+                                  encoding='utf-8'))
+        _bad, _leak, _ghost, _stale = [], [], [], []
         for _k, _t in long_all.items():
             _parts = _k.split('|')
             if len(_parts) == 3:
@@ -444,9 +450,18 @@ try:
                 if len({c for _p, c in _own}) > 1:
                     _leak.append(_k)
                     continue
-            _why = long_reject(_t, _own, ok=_name in _ok, blocked=_name in _blk)
+            _why = long_reject(_t, _own, ok=_name in _ok, blocked=_name in _blk,
+                               name=_name, long_block=_lblk.get(_name))
             if _why:
                 _bad.append('%s（%s）' % (_k, _why))
+
+        # 人工拉黑账本不能「拉了还在」：说明清洗没跑，或名字写错了。
+        _blocked_left = [k for k in long_all if k.split('|')[-1] in _lblk]
+        if _blocked_left:
+            _stale = _blocked_left
+        if _stale:
+            problems.append('已人工拉黑的长介绍仍在库里 %d 条（如 %s）→ python tools/clean_long_desc.py'
+                            % (len(_stale), '、'.join(_stale[:3])))
         if _leak:
             problems.append('长介绍仍是裸名键的重名景点 %d 处（如 %s）→ python tools/rekey_long_desc.py --apply'
                             % (len(_leak), '、'.join(_leak[:3])))
