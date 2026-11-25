@@ -1751,6 +1751,73 @@ function check(name, ok, detail = '') {
   await cdp.eval("document.getElementById('quiz-close').click()");
   await sleep(300);
 
+  // 11e) 心情鉴定卡：整份报告是画在 canvas 上的，必须有等价文字
+  //      之前这张卡对读屏是隐形的 —— 弹窗名字取的是英文 id「mood-modal」，
+  //      canvas 没有角色/名字/描述，焦点直接落在「收好」上：听完只知道
+  //      "有张图"，类型码、判词、四项指标、宜忌、编号一个字都拿不到。
+  //      这里走问卷这条路（当天没有足迹时的真实入口），并且与上一段故意选
+  //      相反的选项 —— 卡面内容变了，文字版也得跟着变，写死文案过不了。
+  await cdp.eval("document.getElementById('btn-mood-home').click()");
+  await waitFor(async () => cdp.eval(
+    "document.querySelectorAll('#quiz-body .quiz-opt').length >= 16"), 4000);
+  await cdp.eval(`[...document.querySelectorAll('#quiz-body .quiz-item')]
+    .forEach(it => { const b = it.querySelectorAll('.quiz-opts button'); b[b.length - 1].click(); })`);
+  await waitFor(async () => cdp.eval(
+    "document.getElementById('quiz-submit').disabled === false"), 4000);
+  await cdp.eval("document.getElementById('quiz-submit').click()");
+  const mood = await waitFor(async () => {
+    const r = await cdp.eval(`(() => {
+      const m = document.getElementById('mood-modal');
+      if (m.hidden !== false) return null;
+      const cv = document.getElementById('mood-canvas');
+      const lb = m.getAttribute('aria-labelledby');
+      const t = lb ? document.getElementById(lb) : null;
+      const alt = document.getElementById('mood-alt');
+      return JSON.stringify({
+        label: m.getAttribute('aria-label') || '',
+        title: t ? t.textContent.trim() : '',
+        role: cv.getAttribute('role') || '',
+        name: cv.getAttribute('aria-label') || '',
+        desc: alt ? alt.textContent : '',
+        active: document.activeElement ? document.activeElement.id : '',
+        today: new Date().toISOString().slice(0, 10).replace(/-/g, ''),
+      });
+    })()`);
+    return r ? JSON.parse(r) : null;
+  }, 5000);
+  check('心情鉴定弹窗的名字是人话，不再读成英文 id',
+    !!mood && mood.label === '' && /^今日心情鉴定 · \S/.test(mood.title),
+    mood ? `名字「${mood.title}」，aria-label=${mood.label || '（未用）'}` : '弹窗没打开');
+
+  // 焦点是弹窗层在下一帧才移过去的（dialog.js 等渲染落定才聚焦），不能同帧读
+  const moodFocus = await waitFor(async () => {
+    const a = await cdp.eval("document.activeElement ? document.activeElement.id : ''");
+    return a === 'mood-canvas' ? a : null;
+  }, 2500);
+  check('鉴定卡以图像角色暴露、有可读名，且开弹窗时焦点落在卡上',
+    !!mood && mood.role === 'img' && mood.name.length > 0 && moodFocus === 'mood-canvas',
+    mood ? `role=${mood.role}，名字「${mood.name}」，焦点=${moodFocus || mood.active}`
+      : '弹窗没打开');
+
+  const moodDesc = mood ? mood.desc : '';
+  const moodMiss = [];
+  const need = (cond, what) => { if (!cond) moodMiss.push(what); };
+  need(/^精神状态鉴定卡：[EI][FD][TJ][SR]「[^」]+」/.test(moodDesc), '类型码/称号');
+  need(moodDesc.includes('字母含义：'), '字母释义');
+  need(moodDesc.includes('判词：'), '判词');
+  need(['仙气值', '癫值', 'emo浓度', '生命力'].every(k => moodDesc.includes(k + ' ')), '四项指标');
+  need(/四项指标：(?:[^，]+ \d+%，){3}[^，]+ \d+%。/.test(moodDesc), '四项百分比');
+  need(moodDesc.includes('宜') && moodDesc.includes('；忌'), '宜忌');
+  need(moodDesc.includes('今日幸运物：'), '幸运物');
+  need(moodDesc.includes('NO.' + (mood ? mood.today : '') + '-'), '当天编号');
+  need(/留下 \d+ 枚足迹后鉴定/.test(moodDesc), '足迹数');
+  need(!/undefined|NaN/.test(moodDesc), '无空字段');
+  check('鉴定卡的文字版与卡面逐项对应（不是写死的一句话）',
+    !!mood && moodDesc.length > 60 && moodMiss.length === 0,
+    mood ? `缺项 ${moodMiss.join('、') || '无'}｜${moodDesc.slice(0, 52)}…` : '弹窗没打开');
+  await cdp.eval("document.getElementById('mood-close').click()");
+  await sleep(250);
+
   // 12) 减少动效：欢迎页星空必须冻结，但不能冻结成一片空白
   //     入场星空是整站面积最大的持续动效（整屏 110 个点在漂）。之前 CSS 层
   //     已经把卡片入场/悬停/骨架屏全停了，唯独这块 canvas 自己跑 rAF，漏在外面。

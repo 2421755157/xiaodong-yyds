@@ -21,6 +21,7 @@ import * as tl from '../js/three-loader.js';
 import { spotDescKey, pickSpotDesc, pickCoord, pickBySpotKey } from '../js/lexicon.js';
 import { PROVINCES } from '../js/china-data.js';
 import { LONG_SHARD_OF } from '../js/long-shard-map.js';
+import { analyzeToday, moodCardAlt } from '../js/mood.js';
 
 let passed = 0, failed = 0;
 const skipped = 0;   // 预留：将来有条件跳过的用例
@@ -989,6 +990,50 @@ await test('搜索: 全等命中排在包含命中之前，同名异地都保留
   ] }] }];
   const order = collectHits(provinces, '西湖').map(r => r.label);
   assert.deepEqual(order, ['西湖', '西湖公园'], '全等命中没有排在最前：' + order.join('、'));
+});
+
+// ─────────────────────────── 心情卡文字版 ───────────────────────────
+// 鉴定卡是画在 canvas 上的，读屏只能听到「图像」。所以卡面有的每一项都必须在
+// moodCardAlt 里出现 —— 这类"少了一项"不会报错，只会让听的人永远不知道
+// 自己得了多少分，只能靠这条用例守。
+
+const MOOD_FPS = [
+  { mood: 5, score: 9, text: '今天很开心，湖边安静地走了很久，风很舒服', ts: 1 },
+  { mood: 4, score: 8, text: '看到晚霞，治愈了，想再来一次', ts: 2 },
+  { mood: 3, score: 7, text: '有点累，但算了，想通了', ts: 3 },
+];
+
+await test('心情卡文字版: 卡面上的类型/判词/四项指标/宜忌/幸运物/编号都有', async () => {
+  const r = analyzeToday(MOOD_FPS, '测试员');
+  const alt = moodCardAlt(r);
+  const missing = [];
+  const want = (cond, what) => { if (!cond) missing.push(what); };
+  want(alt.includes(r.code), '类型码 ' + r.code);
+  want(alt.includes(r.title), '称号 ' + r.title);
+  want(alt.includes(r.verdict), '判词');
+  for (const b of r.bars) want(alt.includes(b.label + ' ' + b.val + '%'), '指标 ' + b.label);
+  for (const y of r.yi) want(alt.includes(y), '宜 ' + y);
+  for (const j of r.ji) want(alt.includes(j), '忌 ' + j);
+  want(alt.includes(r.lucky), '幸运物 ' + r.lucky);
+  want(alt.includes(r.serial), '编号 ' + r.serial);
+  want(alt.includes('测试员'), '署名');
+  want(alt.includes(r.fpsCount + ' 枚足迹'), '足迹数');
+  // 四个字母各自的含义（卡面上也印了一行释义）
+  for (const c of r.code.split('')) want(alt.includes(r.dims[c]), '字母含义 ' + c);
+  want(!/undefined|NaN|null/.test(alt), '没有 undefined/NaN');
+  assert.deepEqual(missing, [], '文字版缺项：' + missing.join('、'));
+});
+
+await test('心情卡文字版: 判词没有句末标点时补句号，不与下一句黏连', async () => {
+  const r = analyzeToday(MOOD_FPS, '');
+  const alt = moodCardAlt({ ...r, verdict: '平平淡淡才是真' });
+  assert.ok(alt.includes('判词：平平淡淡才是真。四项指标'), '判词与下一句黏在一起：' + alt.slice(0, 80));
+});
+
+await test('心情卡文字版: 没填名字的人不会读成空署名', async () => {
+  const alt = moodCardAlt(analyzeToday(MOOD_FPS, ''));
+  assert.ok(alt.includes('无名氏留下 3 枚足迹'), '空署名没有兜底：' + alt);
+  assert.ok(!alt.includes('undefined'), alt);
 });
 
 // ─────────────────────────── 汇总 ───────────────────────────// 注意：不要写 '\n通过 %d，失败 %d' % (...) ——

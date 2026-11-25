@@ -217,8 +217,8 @@
 
 ```bash
 python tools/check_integrity.py   # 静态检查：DOM id / import 路径 / 导出名 / 表单可读名字
-node tools/unit_test.mjs          # 单元测试：纯函数 91 项（无需浏览器）
-node tools/e2e_check.mjs          # 端到端：真实浏览器跑 138 项交互断言
+node tools/unit_test.mjs          # 单元测试：纯函数 94 项（无需浏览器）
+node tools/e2e_check.mjs          # 端到端：真实浏览器跑 141 项交互断言
 npx eslint js/ tools/ -c eslint.config.mjs   # 代码风格与潜在缺陷
 ```
 
@@ -366,6 +366,11 @@ node server.cjs
   Tab 只停一项，方向键 / Home / End 直接改选（10 颗星不再需要按 10 次 Tab）
 - **表单有标签**：档案、称呼、足迹留言都有 `aria-label` 或真正 `for=` 关联的 `<label>`，
   不再靠 placeholder 顶名字（一填字名字就没了）
+- **画布上的内容有文字版**：心情鉴定卡是 1080×1350 的 canvas，卡面上的类型码、判词、
+  四项指标、宜忌、编号对读屏来说原本不存在。现在卡本身是 `role="img"` 且键盘可达，
+  整份结果另有一份文字版挂在其 `aria-describedby` 上，开弹窗时焦点就落在卡上；
+  纯装饰的两块画布（入场星空、3D 漫游画面）标 `aria-hidden`，不进无障碍树。
+  `check_integrity.py` 会拦下"没交代角色"和"只挂空文本节点"两种写法
 
 ## 免责声明
 

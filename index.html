@@ -34,7 +34,7 @@
 
 <!-- ══════════ 登录屏 ══════════ -->
 <section id="gate">
-  <canvas id="gate-particles"></canvas>
+  <canvas id="gate-particles" aria-hidden="true"></canvas>
   <div class="gate-inner">
     <p class="gate-eyebrow">NIGHT ROAMER · 山河漫游</p>
     <h1 class="gate-title">天黑了<br>该<span class="gold">出去走走</span>了</h1>
@@ -104,7 +104,8 @@
 
 <!-- ══════════ 3D 场景屏 ══════════ -->
 <section id="stage" hidden>
-  <canvas id="scene-canvas"></canvas>
+  <!-- 纯视觉漫游画面：键盘/读屏用不到，旁边的锁屏提示才是给它们的信息 -->
+  <canvas id="scene-canvas" aria-hidden="true"></canvas>
 
   <div id="lock-mask">
     <div class="lock-inner">
@@ -261,7 +262,11 @@
 <!-- ══════════ 弹窗：心情鉴定卡 ══════════ -->
 <div class="modal" id="mood-modal" hidden>
   <div class="modal-card mood-card-wrap">
-    <canvas id="mood-canvas" width="1080" height="1350"></canvas>
+    <!-- 卡面是 canvas，读屏读不到上面任何字：名字给弹窗，内容给 #mood-alt -->
+    <h3 class="sr-only" id="mood-title">今日心情鉴定</h3>
+    <canvas id="mood-canvas" width="1080" height="1350" role="img"
+            aria-label="今日精神状态鉴定卡" aria-describedby="mood-alt" tabindex="0"></canvas>
+    <p class="sr-only" id="mood-alt"></p>
     <div class="modal-actions">
       <button class="btn-ghost" id="mood-close">收好</button>
       <button class="btn-gold" id="mood-download">下载卡片 PNG</button>

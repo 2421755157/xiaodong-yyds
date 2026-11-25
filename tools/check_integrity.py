@@ -879,6 +879,50 @@ try:
 except Exception as e:
     problems.append('图组分片校验失败（%s）' % e)
 
+# 25) canvas 必须交代自己的角色
+#     画在 canvas 上的文字对读屏是不存在的：心情鉴定卡整张报告（类型码、称号、
+#     判词、四项指标、宜忌、编号）都是画出来的，没有等价文本时读屏用户打开
+#     弹窗只能听到「图像」，报告一个字都没有。规则两条：
+#       · 纯装饰（入场星空、3D 画面）→ aria-hidden="true"，别让它进无障碍树；
+#       · 承载内容 → role="img" + 可读名，长内容再用 aria-describedby 指到文字版。
+#     另外 describedby 指到的元素若在 HTML 里是空的（运行期填），必须真的有人填：
+#     只挂一个空 id 的写法看起来"有替代文本"，实际还是空的。
+_CANVAS = re.compile(r'<canvas\b[^>]*>', re.I)
+_js_src = ''
+for _f in (os.path.join(JS, 'app.js'), os.path.join(JS, 'mood.js')):
+    if os.path.exists(_f):
+        _js_src += io.open(_f, encoding='utf-8').read()
+for _m in _CANVAS.finditer(html):
+    _tag = _m.group(0)
+    _id_m = re.search(r'id="([^"]+)"', _tag)
+    _who = '#' + _id_m.group(1) if _id_m else _tag[:36]
+    if re.search(r'aria-hidden="true"', _tag):
+        continue
+    if not re.search(r'role="img"', _tag):
+        problems.append('canvas %s 没交代角色：装饰性加 aria-hidden="true"，'
+                        '承载内容加 role="img" + 可读名' % _who)
+        continue
+    _lbl = re.search(r'aria-label="([^"]*)"', _tag)
+    if not _lbl or not _lbl.group(1).strip():
+        problems.append('canvas %s 是 role="img" 但没有可读名（aria-label 为空）' % _who)
+    _db = re.search(r'aria-describedby="([^"]+)"', _tag)
+    if _db:
+        _tgt = _db.group(1).strip()
+        if _tgt not in html_ids:
+            problems.append('canvas %s 的 aria-describedby 指向不存在的 #%s' % (_who, _tgt))
+        else:
+            _body = re.search(r'<[a-z0-9]+[^>]*id="%s"[^>]*>(.*?)</' % re.escape(_tgt),
+                              html, re.S)
+            if _body and not re.sub(r'<[^>]+>', '', _body.group(1)).strip():
+                # 空壳 + 运行期填充：要求 `$('#id').textContent = …` 这个直接赋值。
+                # 只看「有没有引用过这个 id」不够 —— 负向注入里把赋值删掉、只留
+                # 一句取值，照样能骗过那种宽松写法。
+                _fill = re.compile(r"""\$\(\s*['"]#%s['"]\s*\)\s*\.textContent\s*="""
+                                   % re.escape(_tgt))
+                if not _fill.search(_js_src):
+                    problems.append('canvas %s 的文字版 #%s 在 HTML 里是空的，'
+                                    '且没有代码往里写内容' % (_who, _tgt))
+
 print('检查完成：%d 个问题' % len(problems))
 for p in problems:
     print('  ✗', p)

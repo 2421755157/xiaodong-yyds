@@ -89,6 +89,29 @@ export function analyzeToday(fps, userName) {
 
 function clamp(v) { return Math.max(4, Math.min(99, Math.round(v))); }
 
+// ─── 卡片的文字版 ───
+// 报告卡是 1080×1350 的 canvas：卡面上每一个字都只是像素，读屏软件读不到，
+// 打印/纯文本环境也拿不到。整份鉴定结果（类型、称号、判词、四项指标、宜忌、
+// 幸运物、编号）必须另有一份与卡面逐项对应的文字，挂在 canvas 的
+// aria-describedby 上。结果类的内容缺一项，听的人就永远不知道自己得了几分；
+// 卡面底部那句固定免责小字不重复。
+export function moodCardAlt(r) {
+  const dot = s => /[。！？…]$/.test(s) ? s : s + '。';
+  const letters = r.code.split('')
+    .map(c => c + ' ' + (r.dims[c] || '')).join('、');
+  const bars = r.bars.map(b => b.label + ' ' + b.val + '%').join('，');
+  return [
+    '精神状态鉴定卡：' + r.code + '「' + r.title + '」。',
+    '字母含义：' + letters + '。',
+    dot('判词：' + r.verdict),
+    '四项指标：' + bars + '。',
+    '宜' + r.yi.join('、') + '；忌' + r.ji.join('、') + '。',
+    '今日幸运物：' + r.lucky + '。',
+    '编号 ' + r.serial + '，' + (r.userName || '无名氏')
+      + '留下 ' + r.fpsCount + ' 枚足迹后鉴定。',
+  ].join('');
+}
+
 // ─── 绘制 1080x1350 鉴定卡 ───
 export function drawMoodCard(canvas, r) {
   const W = 1080, H = 1350;

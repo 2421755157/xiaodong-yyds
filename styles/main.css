@@ -740,6 +740,12 @@ button:focus-visible,a[href]:focus-visible,[role="button"]:focus-visible{
   outline:2px solid var(--gold);
   outline-offset:2px;
 }
+/* 心情鉴定卡是可聚焦的 role="img"（焦点落上去才会读出文字版）。
+   它不是控件，但同样得让人看得见焦点在哪。 */
+#mood-canvas:focus-visible{
+  outline:2px solid var(--gold);
+  outline-offset:2px;
+}
 
 /* 详情页「上一处 / 下一处」：跟在操作区左侧，和「看视频」同排 */
 #intro-prev,#intro-next{font-size:12px;letter-spacing:1px;padding:9px 12px}

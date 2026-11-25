@@ -11,7 +11,7 @@ import { collectHits } from './search-core.js';
 import { resolveTheme, THEME_ORDER, themeLabel, PRO_SCENES, spotSeed, setQuality } from './scenes-meta.js';
 import { isMobile, hasWebGL } from './env.js';
 import { loadThreeRuntime, loadPanorama, warmUpThree } from './three-loader.js';
-import { analyzeToday, drawMoodCard } from './mood.js';
+import { analyzeToday, drawMoodCard, moodCardAlt } from './mood.js';
 import { FORTUNES, greetingFor, SPOT_MEMES, expandDesc, pickN, spotDescKey, pickSpotDesc,
          pickCoord, pickBySpotKey } from './lexicon.js';
 import { getSpotImages, getSpotCover, galleryReady, ensureGallery,
@@ -1741,12 +1741,21 @@ function submitNote() {
 }
 
 // ═════════ 心情鉴定 ═════════
+// 画卡与文字版必须同时更新：卡面上有的（类型码、称号、判词、四项指标、宜忌、
+// 幸运物、编号），#mood-alt 里也要有。否则读屏用户打开这张卡只会听到
+// 「图像」，报告内容一个字都拿不到。两处入口（当天足迹 / 问卷）都走这里。
+function showMoodCard(r) {
+  drawMoodCard($('#mood-canvas'), r);
+  $('#mood-alt').textContent = moodCardAlt(r);
+  $('#mood-title').textContent = '今日心情鉴定 · ' + r.title;
+}
+
 function openMood() {
   const fps = store.todayFootprints();
   if (!fps.length) { openQuiz(); return; }
   roamer?.unlock?.();
   const r = analyzeToday(fps, store.data.user?.name);
-  drawMoodCard($('#mood-canvas'), r);
+  showMoodCard(r);
   $('#mood-modal').hidden = false;
 }
 
@@ -1855,7 +1864,7 @@ function submitQuiz() {
   }));
   $('#quiz-modal').hidden = true;
   const r = analyzeToday(fakeFps, store.data.user?.name);
-  drawMoodCard($('#mood-canvas'), r);
+  showMoodCard(r);
   $('#mood-modal').hidden = false;
 }
 
