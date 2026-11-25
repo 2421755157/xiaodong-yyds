@@ -1099,9 +1099,10 @@ async function openSpot(prov, city, spot, pushEntry = false) {
   const ownEntry = !!(prevState && prevState.spot);
   // 只等「该景点所在省」那一片简介（约 82KB），不再等整库 656KB ——
   // 这一句 await 直接压在用户点下去到弹窗出现之间，是详情页最贵的一段等待。
-  // 图集库 239KB 仍放后台加载 —— await 它会让弹窗再卡近 1 秒。
   await loadProvDesc(prov.n);
-  ensureGallery();
+  // 图集库 292KB 已按省切分（单片 1~16KB），这里只拉该省那一片 ——
+  // await 它会让弹窗再卡一下，所以仍放后台，图集先出主图、到货后补。
+  ensureGallery(prov.n);
   const isPro = PRO_SCENES[city.n + '|' + spot.n];
   const typeInfo = SPOT_TYPE[spot.t] || SPOT_TYPE.park;
   const seed = spotSeed(spot.n);
@@ -1190,7 +1191,7 @@ async function openSpot(prov, city, spot, pushEntry = false) {
     galImgs.length = 0;
     const realImgs = getSpotImages(spot.n, prov.n, 3, spot.t, SPOT_KEY.get(spot));
     // 图集库到货后，凑不满的格子就是"真没有更多实景"了（占位图上也会这么写）。
-    const exhausted = galleryReady();
+    const exhausted = galleryReady(prov.n);
     for (let i = 0; i < 3; i++) {
       const fig = document.createElement('figure');
       // 占位图不可点，就别挂"查看大图"这种按钮式名称 —— 屏幕阅读器会以为能点开。
@@ -1220,10 +1221,10 @@ async function openSpot(prov, city, spot, pushEntry = false) {
     }
   };
   buildGallery();
-  // 图集库是异步加载的：加载完成后用补充图刷新（原先 await 整个库，
-  // 弹窗要卡近 1 秒；改成先出主图、库就绪后再补图集）
-  if (!galleryReady()) {
-    ensureGallery().then(() => {
+  // 图集库是异步加载的（本省分片，1~16KB）：加载完成后用补充图刷新
+  // （原先 await 整个库，弹窗要卡近 1 秒；改成先出主图、库就绪后再补图集）
+  if (!galleryReady(prov.n)) {
+    ensureGallery(prov.n).then(() => {
       if (!$('#intro-gallery') || !$('#intro-gallery').contains(galImgs[0])) return;  // 已关闭详情
       buildGallery();
     });

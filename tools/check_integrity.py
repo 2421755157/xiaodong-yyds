@@ -221,6 +221,9 @@ except Exception as e:
 #    只检查 `export const/function/class` 声明式导出；`export { x } from './y'`
 #    这类再导出要看调用链，误报多，不纳入。
 DEAD_EXPORT_SKIP = ('long-db-', 'spot-desc-shard-')   # 数据块：导出名是按 '<前缀>_' + i 拼出来的
+# 图组数据块 gallery-shard-<i>.js 同理；但加载器 gallery-shard.js 要照常查，
+# 所以这里用「数字结尾」精确匹配，不能用前缀（前缀会把加载器一起放过）。
+DEAD_EXPORT_SKIP_RE = re.compile(r'^gallery-shard-\d+\.js$')
 try:
     consumers = {}
     for root, _dirs, files in os.walk(JS):
@@ -238,7 +241,7 @@ try:
         if not p.endswith('.js') or not p.startswith(JS):
             continue
         base = os.path.basename(p)
-        if base.startswith(DEAD_EXPORT_SKIP):
+        if base.startswith(DEAD_EXPORT_SKIP) or DEAD_EXPORT_SKIP_RE.match(base):
             continue
         for m in re.finditer(r'export\s+(?:async\s+)?(?:const|let|var|function|class)\s+([A-Za-z0-9_$]+)',
                              src):
@@ -822,6 +825,59 @@ try:
                         % (len(_sm_stale), '、'.join(_sm_stale[:3])))
 except Exception as e:
     problems.append('主图分辨率校验失败（%s）' % e)
+
+# 24) 图组分片：详情页只拉本省那一片，别再整库 292KB
+#     以前打开任意景点都要下完 1873 处景点的图组，只为图集第 2/3 格那两张缩略图。
+#     现在一省一片（tools/shard_gallery.py），派生自 js/spot-gallery-db.js。
+#     源库导出后忘了重分片，前端就会一直显示旧图组 —— 只有部分省份看得出来。
+#     与第 21 项同样三道：分片与源一致 / 一条不少 / 映射表与片内键对得上。
+try:
+    import shard_gallery                                # noqa: E402
+    gl_files, gl_buckets, gl_map, gl_provs, gl_total = shard_gallery.plan()
+    gl_drift = []
+    for _p, _text in gl_files.items():
+        _cur = io.open(_p, encoding='utf-8').read() if os.path.exists(_p) else ''
+        if _cur != _text:
+            gl_drift.append(os.path.basename(_p))
+    if gl_drift:
+        problems.append('图组分片与源库不一致 %d 个（%s）→ python tools/shard_gallery.py'
+                        % (len(gl_drift), '、'.join(gl_drift[:3])))
+    if gl_total != sum(len(b) for b in gl_buckets):
+        problems.append('图组分片丢了 %d 处（源库 %d 处，分片合计 %d 处）'
+                        % (gl_total - sum(len(b) for b in gl_buckets), gl_total,
+                           sum(len(b) for b in gl_buckets)))
+    # 拿**盘上的映射表**回头核每片里的每条键：把某省指到别的片，那一省的
+    # 图集就永远只有主图，页面看着正常、内容静默缺失。
+    _gl_map_src = io.open(os.path.join(JS, 'gallery-shard-map.js'), encoding='utf-8').read()
+    _gl_at = _gl_map_src.index('GALLERY_SHARD_OF')
+    _gl_disk = json.loads(_gl_map_src[_gl_map_src.index('{', _gl_at):_gl_map_src.rindex('}') + 1])
+    _gl_spots = json.load(io.open(os.path.join(ROOT, 'data', 'spots_uniq.json'),
+                                  encoding='utf-8'))
+    _gl_cnt = {}
+    for _s in _gl_spots:
+        _gl_cnt[_s['name']] = _gl_cnt.get(_s['name'], 0) + 1
+    _gl_prov_by_name = {_s['name']: _s['prov'] for _s in _gl_spots if _gl_cnt[_s['name']] == 1}
+    _gl_wrong = []
+    for _i, _b in enumerate(gl_buckets):
+        for _k in _b:
+            _prov = _k.split('|')[0] if '|' in _k else _gl_prov_by_name.get(_k)
+            if _gl_disk.get(_prov) != _i:
+                _gl_wrong.append('%s（%s→片%s，实际在片%d）'
+                                 % (_k, _prov, _gl_disk.get(_prov), _i))
+    if _gl_wrong:
+        problems.append('图组分片与映射表对不上 %d 条（如 %s）→ python tools/shard_gallery.py'
+                        % (len(_gl_wrong), '；'.join(_gl_wrong[:2])))
+    # 前端只认 GALLERY_SPOT_COUNT 这个数（首页「多图景点 N 处」用它），写错了
+    # 不会报错，只会一直显示一个旧数字。片数则由映射表的键数反推。
+    _gl_spots_n = re.search(r'GALLERY_SPOT_COUNT\s*=\s*(\d+)', _gl_map_src)
+    if len(_gl_disk) != len(gl_buckets):
+        problems.append('gallery-shard-map.js 里的省份数（%d）与实际片数（%d）对不上'
+                        '→ python tools/shard_gallery.py' % (len(_gl_disk), len(gl_buckets)))
+    if not _gl_spots_n or int(_gl_spots_n.group(1)) != gl_total:
+        problems.append('gallery-shard-map.js 的 GALLERY_SPOT_COUNT 与图组源库（%d 处）对不上'
+                        '→ python tools/shard_gallery.py' % gl_total)
+except Exception as e:
+    problems.append('图组分片校验失败（%s）' % e)
 
 print('检查完成：%d 个问题' % len(problems))
 for p in problems:

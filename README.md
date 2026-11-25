@@ -217,8 +217,8 @@
 
 ```bash
 python tools/check_integrity.py   # 静态检查：DOM id / import 路径 / 导出名 / 表单可读名字
-node tools/unit_test.mjs          # 单元测试：纯函数 89 项（无需浏览器）
-node tools/e2e_check.mjs          # 端到端：真实浏览器跑 137 项交互断言
+node tools/unit_test.mjs          # 单元测试：纯函数 91 项（无需浏览器）
+node tools/e2e_check.mjs          # 端到端：真实浏览器跑 138 项交互断言
 npx eslint js/ tools/ -c eslint.config.mjs   # 代码风格与潜在缺陷
 ```
 
@@ -264,7 +264,7 @@ python tools/fetch_descriptions.py          # 补真实简介（景点 + 省市�
 python tools/fill_missing_desc.py            # 维基通道拿不到的，改走百科接口补
 python tools/build_pinyin_db.py              # 生成拼音搜索索引 → js/pinyin-db.js
 python tools/fetch_images.py --mode gallery --limit 500   # 补景点照片（Wikimedia，备用）
-python tools/export_db.py                   # 导出前端静态库
+python tools/export_db.py                   # 导出前端静态库（图组顺带按省切 34 片）
 node   tools/build_home_stats.mjs            # 生成首页统计常量（导出之后跑，顺序不能反）
 python tools/fetch_long_desc.py              # 导出历史沿革长介绍（按省分 34 片）
 python tools/fetch_panorama.py               # 抓真实全景图（球面/宽幅）

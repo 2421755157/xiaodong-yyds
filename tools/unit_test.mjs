@@ -314,13 +314,57 @@ await test('getSpotImages: count 大于可用图片时补占位图', () => {
 // 图库都到货了还写「实景图加载中…」，等于让用户一直等一张不会来的图。
 await test('图集补位: 两个库就绪后占位图说"暂无更多实景"而不是"加载中"', async () => {
   await si.loadSpotImages();
-  await si.ensureGallery();
+  await si.ensureGallery('吉林');
   const imgs = si.getSpotImages('三角龙湾', '吉林', 3, 'water', '三角龙湾');
   const ph = imgs.filter(u => u.startsWith('data:'));
   assert.ok(ph.length >= 1, '该景点只有 2 张实景，第 3 格应是占位图，实际 ' + imgs.length + ' 张');
   const svg = decodeURIComponent(ph[0].replace(/^data:image\/svg\+xml;charset=utf8,/, ''));
   assert.ok(svg.includes('暂无更多实景'), '占位图应说明没有更多实景，实际：' + svg.slice(0, 120));
   assert.ok(!svg.includes('加载中'), '图库已就绪，不该再说加载中');
+});
+
+// ─────────── 图组按省分片（本轮：详情页 292KB 整库 → 单片 1~16KB）───────────
+// 分片是派生物，最容易出的错是「源库更新了但分片没重跑」和「省份归错片」：
+// 前者由 check_integrity 第 24 项挡，后者只能在这里逐条比对。
+await test('图组分片: 省份 → 片号齐全，片内条目都属于本省', async () => {
+  const { GALLERY_SHARD_OF } = await import('../js/gallery-shard-map.js');
+  const spots = JSON.parse(readFileSync(new URL('../data/spots_uniq.json', import.meta.url), 'utf8'));
+  const cnt = new Map();
+  for (const s of spots) cnt.set(s.name, (cnt.get(s.name) || 0) + 1);
+  const provByName = new Map();
+  for (const s of spots) if (cnt.get(s.name) === 1) provByName.set(s.name, s.prov);
+
+  const missing = PROVINCES.map(p => p.n).filter(n => !Number.isInteger(GALLERY_SHARD_OF[n]));
+  assert.deepEqual(missing, [], '这些省没有图组片号，前端会拿不到图组：' + missing.join('、'));
+
+  const wrong = [];
+  let total = 0;
+  for (const [prov, i] of Object.entries(GALLERY_SHARD_OF)) {
+    const mod = await import('../js/gallery-shard-' + i + '.js');
+    const db = mod['GALLERY_SHARD_' + i] || {};
+    total += Object.keys(db).length;
+    for (const k of Object.keys(db)) {
+      const p = k.includes('|') ? k.split('|')[0] : provByName.get(k);
+      if (p !== prov) wrong.push(k + '（' + prov + '片，实际属' + p + '）');
+    }
+  }
+  assert.deepEqual(wrong.slice(0, 3), [], '这些图组归错片：' + wrong.slice(0, 3).join('；'));
+  const { SPOT_GALLERY_DB } = await import('../js/spot-gallery-db.js');
+  assert.equal(total, Object.keys(SPOT_GALLERY_DB).length,
+    '分片合计与源库条数不一致（有条目丢了）');
+});
+
+// 「只拉本省那片」是这一轮的全部意义。上面的用例已经把所有片拉进同一个模块实例，
+// 这里用带 query 的 import 起一个新实例（Node 按完整 URL 缓存），从零验证可见性。
+await test('图组分片: 拉一片只到货一片，别的省仍是占位', async () => {
+  const fresh = await import('../js/gallery-shard.js?isolated=1');
+  assert.equal(fresh.galleryShardReady('浙江'), false, '未请求前不该就绪');
+  assert.equal(fresh.galleryGet('西湖'), undefined, '未请求前不该有图组');
+  const zj = await fresh.ensureGalleryShard('浙江');
+  assert.ok(Object.keys(zj).length > 0, '浙江片应有条目');
+  assert.equal(fresh.galleryShardReady('浙江'), true);
+  assert.equal(fresh.galleryShardReady('江苏'), false, '没请求江苏，不该显示已就绪');
+  assert.equal(fresh.galleryShardOf('不存在的省'), -1, '未知省份应返回 -1（立即 resolve）');
 });
 
 // ── 3D 预热的网络条件判断 ──
@@ -783,9 +827,10 @@ await test('图集: 补满两张实景的景点，3 格不再出现占位渐变'
   const hadLoc = 'location' in globalThis;
   if (!hadLoc) globalThis.location = { href: 'http://127.0.0.1/' };
   // 主图库与图组库都是懒加载的，浏览器里进景点层前会 await 主图库；
-  // 这里手动等都加载完，否则 getSpotImages 一律返回占位图。
+  // 图组已按省分片，这个用例要全量核对，就得把 34 片都拉下来（Node 里 292KB 无所谓）。
   await si.loadSpotImages();
-  await si.ensureGallery();
+  const { GALLERY_SHARD_OF } = await import('../js/gallery-shard-map.js');
+  for (const prov of Object.keys(GALLERY_SHARD_OF)) await si.ensureGallery(prov);
   const { SPOT_GALLERY_DB } = await import('../js/spot-gallery-db.js');
   const { SPOT_IMAGES_DB } = await import('../js/spot-images-db.js');
   const full = Object.keys(SPOT_GALLERY_DB)

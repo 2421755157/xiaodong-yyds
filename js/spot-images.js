@@ -4,6 +4,8 @@
 //  2) 运行时 Wikimedia 精搜（打开详情时补搜，替换地区泛图 / 补齐图集）
 //  3) 主题化 SVG 占位（终极降级，按类型生成渐变，非随机 picsum）
 import { lazyDB } from './lazy-db.js';
+import { ensureGalleryShard, galleryShardReady, galleryGet } from './gallery-shard.js';
+import { GALLERY_SPOT_COUNT } from './gallery-shard-map.js';
 
 // 静态图库 120KB（raw）/ 36KB（gzip）——是首屏最大的一块，但首屏只渲染省份网格，
 // 用的是渐变封面，一张景点照片都不需要。改成按需加载：
@@ -103,15 +105,16 @@ export function getSpotCover(spotName, provName, type, key) {
 }
 
 // ── 同步：图集（详情弹窗，count 张）──
-// ── 补充图组：独立文件懒加载（239KB，不进首屏）──
-const GALLERY_DB = lazyDB(() => import('./spot-gallery-db.js'), m => m.SPOT_GALLERY_DB);
-export function ensureGallery() {
-  return GALLERY_DB.load();
+// ── 补充图组：按省分片懒加载（292KB 整库 → 单片 1~16KB，见 gallery-shard.js）──
+// 以前这里整库 import：打开一处景点要下完 1873 处景点的图组，只为图集第 2/3 格。
+// 现在只取「该景点所在省」那一片，省份必需的 —— 传 undefined 等于没有图组。
+export function ensureGallery(prov) {
+  return ensureGalleryShard(prov);
 }
 
-// 图集库是否已就绪（用于判断要不要等它再渲染图集）
-export function galleryReady() {
-  return GALLERY_DB.ready();
+// 该省图组分片是否已就绪（决定占位文案写「加载中」还是「暂无更多实景」）
+export function galleryReady(prov) {
+  return galleryShardReady(prov);
 }
 
 // ── 图片库统计（首页展示真实数据）──
@@ -123,7 +126,8 @@ export function imageStats() {
     const e = db[k];
     if (e[1] >= 3) c3++; else if (e[1] === 2) c2++; else c1++;
   }
-  return { total: keys.length, c3, c2, c1, galleryCount: Object.keys(GALLERY_DB.data()).length };
+  // 图组库已不进前端，条数由分片表带过来（构建期算好，免得为了一个数字拉 292KB）
+  return { total: keys.length, c3, c2, c1, galleryCount: GALLERY_SPOT_COUNT };
 }
 
 export function getSpotImages(spotName, provName, count = 3, type, key) {
@@ -137,8 +141,8 @@ export function getSpotImages(spotName, provName, count = 3, type, key) {
   const e = (key && IMAGES_DB.get(key)) || IMAGES_DB.get(spotName);
   if (e) {
     push(e[0]);
-    // 补充图组（懒加载后才有）：让图集 3 张都是实景
-    const g = (key && GALLERY_DB.get(key)) || GALLERY_DB.get(spotName);
+    // 补充图组（本省分片到货后才有）：让图集 3 张都是实景
+    const g = (key && galleryGet(key)) || galleryGet(spotName);
     if (g) for (const u of g) push(u);
   }
   const c = loadCache();
@@ -149,7 +153,9 @@ export function getSpotImages(spotName, provName, count = 3, type, key) {
   // 两个库都就绪还凑不满，说明这处景点确实没有更多实景了（9 处只有主图、
   // 136 处只有主图+1 张图组）。这时候再写「加载中」是骗人：图集库早就到了，
   // 那几个格子永远不会变。改成「暂无更多实景」，把"还在等"和"就这些"分开。
-  const exhausted = IMAGES_DB.ready() && GALLERY_DB.ready();
+  // 注意判的是**这一省**的分片：判全局的话，换到另一个省时会把别人那片
+  // 的到货状态当成自己的，占位文案又说错。
+  const exhausted = IMAGES_DB.ready() && galleryReady(provName);
   while (out.length < count) {
     out.push(placeholder(spotName, type, exhausted ? '暂无更多实景' : undefined));
   }

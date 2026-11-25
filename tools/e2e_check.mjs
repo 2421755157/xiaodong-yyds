@@ -541,6 +541,30 @@ function check(name, ok, detail = '') {
   }, 12000);
   check('图组图片真实解码', decoded >= 2, decoded + '/3 张已解码');
 
+  // 5c) 图组只拉「本省」那一片。
+  //     以前整库 292KB（1873 处景点的图组）一次性懒加载 —— 为了图集第 2/3 格
+  //     那两张 720px 缩略图，先把全国的图组拖下来。
+  //     现在一省一片（tools/shard_gallery.py）：单片 1~16KB。
+  //     同时守住「整库不能再被拉一次」—— 有人把 import 改回去，这里立刻红。
+  const galShardRaw = await cdp.eval(`(async () => {
+    const rs = performance.getEntriesByType('resource')
+      .filter(r => /gallery-shard-\\d+\\.js/.test(r.name) || /spot-gallery-db\\.js/.test(r.name));
+    const m = await import('./js/gallery-shard-map.js');
+    const prov = decodeURIComponent(location.hash).replace(/^#\\/?/, '').split('/')[0];
+    return JSON.stringify({
+      req: rs.filter(r => /gallery-shard-\\d+\\.js/.test(r.name)).map(r => r.name.split('/').pop()),
+      bytes: rs.reduce((a, r) => a + (r.transferSize || 0), 0),
+      full: rs.some(r => /spot-gallery-db\\.js/.test(r.name)),
+      prov, want: m.GALLERY_SHARD_OF[prov],
+    });
+  })()`);
+  const gs = JSON.parse(galShardRaw);
+  check('图组只拉本省那一片（没为 3 张缩略图下整库）',
+    gs.full === false && gs.req.length === 1
+      && gs.req[0] === 'gallery-shard-' + gs.want + '.js' && gs.bytes < 40 * 1024,
+    `${gs.prov} → 片${gs.want}，请求 ${gs.req.join('、') || '无'}，` +
+    `${(gs.bytes / 1024).toFixed(0)}KB，整库已拉=${gs.full}`);
+
   // 上一处 / 下一处：详情页里直接翻同城景点
   const beforeName = await cdp.eval("document.getElementById('intro-name').textContent");
   const stepVisible = await cdp.eval("!document.getElementById('intro-next').hidden");

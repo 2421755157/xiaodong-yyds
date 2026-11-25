@@ -85,14 +85,23 @@ def main():
         'export const SPOT_IMAGES_DB = '))
     open(os.path.join(JS, 'spot-gallery-db.js'), 'w', encoding='utf-8').write(js_export(
         gallery,
-        '// ═══ 景点补充图组（打开详情时懒加载）═══\n'
+        '// ═══ 景点补充图组（构建源，不再直接进前端）═══\n'
         '// 生成：tools/export_db.py。每景点最多 2 张，与主图合成 3 格图集。\n'
         '// 补图：tools/fill_gallery_extra.py（补完必须重跑本脚本，否则前端看不到）。\n'
+        '// 前端读的是按省切片的 js/gallery-shard-*.js（tools/shard_gallery.py 派生），\n'
+        '// 本文件保留为唯一导出源：build_home_stats 与 check_integrity 读它做校验。\n'
         'export const SPOT_GALLERY_DB = '))
+
+    # 导出后立刻重分片：只更新源库却忘了分片，前端会一直显示旧图组，
+    # 而且只有部分省份看得出来 —— 最难查的一类。这里顺手做掉。
+    import shard_gallery
+    gal_files = shard_gallery.write()
+    gal_shards = sum(1 for p in gal_files if 'gallery-shard-map' not in p)
 
     print('主图库 %d 条，置信分布 %s' % (len(data), dict(Counter(v[1] for v in data.values()))))
     print('图组库 %d 处；过滤/去重 %d 条；不导出 %d 条（重名裸名键 / 敏感图）'
           % (len(gallery), cleaned, dropped))
+    print('图组分片 %d 片（一省一片）→ js/gallery-shard-*.js' % gal_shards)
 
 
 if __name__ == '__main__':

@@ -29,6 +29,8 @@ tools/
 ├── fetch_baike.mjs        百科 HTML 通道（需无头浏览器，被风控时不可用）
 ├── build_covers.py        生成省市卡片封面库 → js/cover-db.js（34 省地标 + 354 城实景）
 ├── export_db.py           导出图片库（去重 + 敏感过滤 + 死链剔除 + CDN 缩放）→ spot-images-db.js / spot-gallery-db.js
+│                          （导出后自动重跑 shard_gallery.py）
+├── shard_gallery.py      图组库一省一片 → js/gallery-shard-*.js + gallery-shard-map.js（详情页只下一片）
 ├── fix_remote_images.py   修图库：死链主图补本地图、CDN 原图换 720px 缩放地址
 ├── fix_dup_images.py      重名景点分城抓图（西湖/东湖这类按「省|市|名」各存一张）
 ├── build_home_stats.mjs   导出首页统计常量（省得首屏为 4 个数字拉 800KB 的库）
@@ -43,7 +45,7 @@ tools/
 ├── fetch_coords.py       抓景点坐标 → js/coords-db.js（维基 + Wikidata + Photon，无需密钥）
 ├── resolve_disambig.py   消歧义词条重定向（「盘山可以指：…」→ 正确条目）
 ├── check_integrity.py    静态集成检查（DOM id / import 路径 / 导出名 / 数据闸门）
-└── e2e_check.mjs         端到端测试（CDP 直连浏览器，106 项交互断言）
+└── e2e_check.mjs         端到端测试（CDP 直连浏览器，138 项交互断言）
 
 data/                     原始缓存（断点续跑用，可直接提交进仓库）
 ├── spots_uniq.json        1891 个去重景点索引
