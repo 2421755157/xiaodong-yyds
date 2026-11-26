@@ -18,6 +18,34 @@ DYNAMIC_IDS = {'lightbox'}
 
 problems = []
 
+
+def img_w(path):
+    """读 JPEG/PNG 宽高，不依赖 Pillow（CI 上不一定装）。读不出返回 None。"""
+    try:
+        with open(path, 'rb') as f:
+            head = f.read(262144)
+    except OSError:
+        return None
+    if head[:2] == b'\xff\xd8':
+        i = 2
+        while i < len(head) - 9:
+            if head[i] != 0xFF:
+                i += 1
+                continue
+            m = head[i + 1]
+            if m in (0xC0, 0xC1, 0xC2, 0xC3):
+                h, w = struct.unpack('>HH', head[i + 5:i + 9])
+                return w, h
+            if m in (0xD8, 0xD9, 0x01) or 0xD0 <= m <= 0xD7:
+                i += 2
+                continue
+            i += 2 + struct.unpack('>H', head[i + 2:i + 4])[0]
+        return None
+    if head[:8] == b'\x89PNG\r\n\x1a\n':
+        w, h = struct.unpack('>II', head[16:24])
+        return w, h
+    return None
+
 # 1) JS 里引用的 id
 # 注意动态拼接：$('#map-view-' + v.key) 这类的前缀 id 在 HTML 里不存在是正常的，
 # 但要验证「确实有元素以此 id 开头」，否则前缀写错也查不出来。
@@ -126,6 +154,55 @@ if os.path.exists(cover_path):
     for key, rel in list(prov_cov.items()) + list(city_cov.items()):
         if not os.path.exists(os.path.join(ROOT, rel.replace('/', os.sep))):
             problems.append('cover-db.js: %s 的封面文件不存在  %s' % (key, rel))
+
+    # 城市封面另外三条（省份封面是手工指定地标去图搜的，不适用）：
+    #   ① 每座城市都要有封面 —— 漏一座就是一张光秃秃的渐变卡；
+    #   ② 挂的必须是**本城**景点自己的照片。旧版按裸名取图（baike_img_local 一个
+    #      名字只存一个路径），于是深圳的卡片挂成了 "TheWorld_UI.PNG"（世界之窗
+    #      浏览器）、赣州挂的是北京明城墙、自贡挂的是延吉恐龙博物馆 —— 重名景点
+    #      全国只留了一条路径，谁撞上谁错；
+    #   ③ 宽度 ≥640：城市卡与景点卡同宽，2x 屏要 632 设备像素，400px 的早年
+    #      图搜缩略图会被放大 1.6 倍。
+    try:
+        _cv_spots = json.load(io.open(os.path.join(ROOT, 'data', 'spots_uniq.json'),
+                                      encoding='utf-8'))
+        _cv_img = json.load(io.open(os.path.join(ROOT, 'data', 'img_db.json'),
+                                    encoding='utf-8'))
+        _cv_cnt = {}
+        for _s in _cv_spots:
+            _cv_cnt[_s['name']] = _cv_cnt.get(_s['name'], 0) + 1
+        _own, _cities = {}, set()
+        for _s in _cv_spots:
+            _cp, _cc = _s.get('prov', ''), _s.get('city', '')
+            if not _cp or not _cc:
+                continue
+            _ck = _cp + '|' + _cc
+            _cities.add(_ck)
+            _k = ('%s|%s|%s' % (_cp, _cc, _s['name'])) if _cv_cnt[_s['name']] > 1 else _s['name']
+            _e = _cv_img.get(_k)
+            if _e and _e.get('u'):
+                _own.setdefault(_ck, set()).add(_e['u'])
+        _no_cov = sorted(_cities - set(city_cov))
+        if _no_cov:
+            problems.append('cover-db.js: 城市缺少封面 %d 座（%s）→ python tools/build_covers.py'
+                            % (len(_no_cov), '、'.join(_no_cov[:3])))
+        _wrong, _thin = [], []
+        for _k, _rel in city_cov.items():
+            if _rel not in _own.get(_k, set()):
+                _wrong.append(_k)
+                continue
+            _wh = img_w(os.path.join(ROOT, _rel.replace('/', os.sep)))
+            if _wh and _wh[0] < 640:
+                _thin.append('%s（%dpx）' % (_k, _wh[0]))
+        if _wrong:
+            problems.append('cover-db.js: 城市封面不是本城景点自己的照片 %d 座（%s）'
+                            '→ 别按裸名取图，走「省|市|名」分城键'
+                            % (len(_wrong), '、'.join(_wrong[:3])))
+        if _thin:
+            problems.append('cover-db.js: 城市封面偏小（<640px）%d 座（%s）'
+                            % (len(_thin), '、'.join(_thin[:3])))
+    except Exception as e:
+        problems.append('城市封面校验失败（%s）' % e)
 else:
     problems.append('js/cover-db.js 不存在（跑 python tools/build_covers.py 生成）')
 
@@ -768,30 +845,6 @@ except Exception as e:
 #     逐条记在 data/img_small_ok.json 里并写明原因。
 #     双向守：新出现的偏小主图必须记账；账上的条目变大了也要销账，不留僵尸。
 try:
-    def _img_w(path):
-        """读 JPEG/PNG 宽高，不依赖 Pillow（CI 上不一定装）。"""
-        with open(path, 'rb') as f:
-            head = f.read(262144)
-        if head[:2] == b'\xff\xd8':
-            i = 2
-            while i < len(head) - 9:
-                if head[i] != 0xFF:
-                    i += 1
-                    continue
-                m = head[i + 1]
-                if m in (0xC0, 0xC1, 0xC2, 0xC3):
-                    h, w = struct.unpack('>HH', head[i + 5:i + 9])
-                    return w, h
-                if m in (0xD8, 0xD9, 0x01) or 0xD0 <= m <= 0xD7:
-                    i += 2
-                    continue
-                i += 2 + struct.unpack('>H', head[i + 2:i + 4])[0]
-            return None
-        if head[:8] == b'\x89PNG\r\n\x1a\n':
-            w, h = struct.unpack('>II', head[16:24])
-            return w, h
-        return None
-
     _sm_ok = json.load(io.open(os.path.join(ROOT, 'data', 'img_small_ok.json'), encoding='utf-8'))
     _sm_db = js_obj(os.path.join(JS, 'spot-images-db.js'), 'SPOT_IMAGES_DB')
     _sm_src = json.load(io.open(os.path.join(ROOT, 'data', 'img_db.json'), encoding='utf-8'))
@@ -809,7 +862,7 @@ try:
         _p = (_sm_src.get(_k) or _sm_src.get(_s['name']) or {}).get('u') or ''
         if not _p or not os.path.exists(os.path.join(ROOT, _p)):
             continue
-        _wh = _img_w(os.path.join(ROOT, _p))
+        _wh = img_w(os.path.join(ROOT, _p))
         if not _wh:
             continue
         if _wh[0] < 480 and _k not in _sm_ok:

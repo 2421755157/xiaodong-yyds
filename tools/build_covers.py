@@ -9,10 +9,13 @@
 两个层次的图源：
     1) 省 / 直辖市 / 自治区 / 特别行政区（34 个）：
        用手工指定的标志性景点去图搜（「山西 · 平遥古城」「安徽 · 黄山」），
-       命中率高、不会张冠李戴。下载到 img/cover/ 并压到 1000px。
+       命中率高、不会张冠李戴。下载到 img/cover/ 并压到 720px。
     2) 城市（354 个）：
-       不额外抓图，直接复用该市第一个有本地照片的景点
-       （img/baike/ 里已经有 1801 张），零新增体积。
+       不额外抓图，直接复用该市景点已经在 img/baike/ 里的照片，零新增文件。
+       取图按「省|市|名」分城键走 data/img_db.json —— 按裸名取会把重名景点的
+       照片发给别的城市（杭州和惠州的卡片曾共用同一张西湖）；同一城里优先挑
+       宽度 ≥MIN_CITY_W 的那张，卡片在 2x 屏要 632 设备像素，400px 的早年
+       缩略图会被放大 1.6 倍。
 
 用法：python tools/build_covers.py [--force] [--prov-only]
 """
@@ -28,7 +31,7 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from common import DATA, JS, load_json, save_json
+from common import DATA, JS, dup_names, load_json, save_json, spot_key
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT_DIR = os.path.join(ROOT, 'img', 'cover')
@@ -40,6 +43,7 @@ UA = ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
       '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
 IMG_API = 'https://image.so.com/j'
 MAXW, QUALITY = 720, 78   # 卡片封面只有 ~330px 宽（2x 屏 660px），1000px 是纯浪费
+MIN_CITY_W = 720          # 城市卡与景点卡同宽，632 设备像素是硬需求，留一点余量
 
 try:
     from PIL import Image
@@ -154,6 +158,17 @@ def shrink(data):
         return data
 
 
+def img_w(path):
+    """读图片宽度；只用来给城市挑封面。读不到就返回 0（当作"不知道"）"""
+    if not Image:
+        return 0
+    try:
+        with Image.open(path) as im:
+            return im.width
+    except Exception:
+        return 0
+
+
 def fetch(url, dest):
     req = urllib.request.Request(url, headers={
         'User-Agent': UA, 'Referer': 'https://image.so.com/'})
@@ -170,7 +185,6 @@ def fetch(url, dest):
 def main():
     os.makedirs(OUT_DIR, exist_ok=True)
     cache = load_json(CACHE, {})
-    local_img = load_json(os.path.join(DATA, 'baike_img_local.json'), {})
     spots = load_json(os.path.join(DATA, 'spots_uniq.json'), [])
 
     prov_cover = {}
@@ -211,22 +225,46 @@ def main():
                 print('  ✗ %-4s %s' % (prov, err))
             time.sleep(0.2)
 
-    # ── 城市封面：复用该市第一个有本地照片的景点，零新增体积 ──
+    # ── 城市封面：复用该市景点自己的照片，零新增文件 ──
+    # 两个判据：
+    #   ① 取图走「省|市|名」分城键。裸名会让重名景点串城——baike_img_local
+    #      一个名字只存一个路径，于是杭州和惠州的卡片都挂了同一张西湖，
+    #      其中一座城市的封面必然不是它自己的（2026-11-26 实测 10 座城市中招）。
+    #   ② 同一城里优先挑宽度 ≥MIN_CITY_W 的。卡片要 632 设备像素，早年 400px
+    #      的图搜缩略图会被放大 1.6 倍；先把清晰的找出来，实在没有才退到"最宽的那张"。
     city_cover = {}
+    city_pick = {}
     if not PROV_ONLY:
+        img_db = load_json(os.path.join(DATA, 'img_db.json'), {})
+        dup = dup_names(spots)
         for s in spots:
             key = s.get('prov', '') + '|' + s.get('city', '')
-            if key in city_cover or key == '|':
+            if key == '|':
                 continue
-            p = local_img.get(s['name'])
-            if p:
-                city_cover[key] = p
+            e = img_db.get(spot_key(s, dup))
+            rel = (e or {}).get('u') or ''
+            if not rel:
+                continue
+            path = os.path.join(ROOT, rel.replace('/', os.sep))
+            if not os.path.exists(path):
+                continue                    # 图库有记录但文件不在，换个景点当封面
+            w = img_w(path)
+            cur = city_pick.get(key)
+            # 够清晰就"先到先得"；还不够清晰时，让位给本城更宽的那张
+            if cur is None or (cur['w'] < MIN_CITY_W and w > cur['w']):
+                city_pick[key] = {'file': rel, 'spot': s['name'], 'w': w}
+        for key, rec in city_pick.items():
+            city_cover[key] = rec['file']
 
     save_json(CACHE, cache)
-    body = ('// ═══ 省市卡片封面（省份为手工指定的地标实景，城市取其首个景点照片）═══\n'
+    # 省份键排序后导出：缓存命中的省按 LANDMARK 顺序写入，本轮重新抓取的省却排在
+    # 末尾，直接把 dict dump 出去会出现「内容没变、顺序变了」的假 diff。
+    # 城市本来就是一整轮遍历 spots 生成的，顺序天然稳定，不必排。
+    body = ('// ═══ 省市卡片封面（省份为手工指定的地标实景，城市取本城景点里够清晰的一张）═══\n'
             '// 生成：tools/build_covers.py → 图片在 img/cover/ 与 img/baike/ 下同源托管\n'
             '// 缺项时前端回退到原渐变底色，不会出现破图\n'
-            'export const PROV_COVER = ' + json.dumps(prov_cover, ensure_ascii=False, indent=0) + ';\n\n'
+            'export const PROV_COVER = ' + json.dumps(dict(sorted(prov_cover.items())),
+                                                     ensure_ascii=False, indent=0) + ';\n\n'
             'export const CITY_COVER = ' + json.dumps(city_cover, ensure_ascii=False, indent=0) + ';\n')
     open(os.path.join(JS, 'cover-db.js'), 'w', encoding='utf-8').write(body)
 
@@ -235,6 +273,13 @@ def main():
                if os.path.exists(os.path.join(ROOT, r.replace('/', os.sep))))
     print('\n封面库：省份 %d/%d，城市 %d 个，省份图片共 %.1f MB → js/cover-db.js'
           % (len(prov_cover), len(LANDMARK), len(city_cover), size / 1024 / 1024))
+    if city_pick:
+        thin = [(k, v) for k, v in city_pick.items() if v['w'] and v['w'] < MIN_CITY_W]
+        print('城市封面：宽度中位 %dpx，仍 < %dpx 的 %d 个%s'
+              % (sorted(v['w'] for v in city_pick.values())[len(city_pick) // 2], MIN_CITY_W,
+                 len(thin),
+                 ('（' + '、'.join('%s %dpx' % (k, v['w']) for k, v in thin[:4]) + '）')
+                 if thin else ''))
 
 
 if __name__ == '__main__':

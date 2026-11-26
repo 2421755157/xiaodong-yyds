@@ -33,9 +33,9 @@ import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from common import DATA, load_json, save_json
+from common import DATA, dup_names, pick_keyed, spot_key, load_json, save_json
 import fetch_baike_api as F
-from fetch_descriptions import desc_ok, dup_names, spot_desc_key
+from fetch_descriptions import desc_ok
 
 # 词条讲的是「这一类」而不是「这一处」。典型：「矿山公园是以展示矿业遗迹景观为主体的
 # 特定空间地域…根据管理级别分为国家级和省级」——黄石国家矿山公园只是文末举例，
@@ -107,8 +107,13 @@ def main():
     # 重名景点会被判成"还没有"再抓一条按裸名存进去，前端 pickSpotDesc
     # 的 `read(key) || read(name)` 就会把这唯一一条发给所有同名景点——
     # 11-04 刚清掉的串城问题会原样长回来。
+    #
+    # 2026-11-26：键函数原先从 fetch_descriptions 导入 spot_desc_key，
+    # 但 11-17（46c568b）把键规则收敛进 common.spot_key 时删掉了那个函数，
+    # 这里的 import 没跟着改 → 脚本一加载就 ImportError，整整 9 天补不了简介。
+    # 现在统一走 common.spot_key / pick_keyed（后者严格遵守"重名不许退到裸名"）。
     dup = dup_names(spots)
-    todo = [s for s in spots if not desc.get(spot_desc_key(s, dup))]
+    todo = [s for s in spots if not pick_keyed(desc, s, dup)]
     print('待补简介 %d 个（其中重名景点 %d 个，只认本市词条）'
           % (len(todo), sum(1 for s in todo if s['name'] in dup)))
     if args.dry_run:
@@ -133,7 +138,7 @@ def main():
                 noc += 1
                 continue
             score, a, title, q = r
-            desc[spot_desc_key(s, dup)] = [a, title]
+            desc[spot_key(s, dup)] = [a, title]
             hit += 1
             if hit % 20 == 0:
                 print('  …已补 %d' % hit)

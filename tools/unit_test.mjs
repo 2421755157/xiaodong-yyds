@@ -631,6 +631,25 @@ await test('景点列表: 换上的景点都有本地简介与封面', async () 
   assert.deepEqual(bad, [], bad.join('；'));
 });
 
+// 城市卡片封面：每座城市一张，且不与其他城市共用同一张照片。
+// build_covers 早先按裸名查 baike_img_local（一个名字只存一条路径），重名景点
+// 的照片必然发给别的城市：赣州的卡片挂成了「2025年春，北京明城墙」，深圳挂的是
+// 大梅沙站厅；裸名键里甚至混着「世界之窗」的浏览器截图（TheWorld_UI.PNG）。
+// 改成「省|市|名」分城键后不会串了，但退回裸名很容易，所以留一条断言盯着。
+await test('城市封面: 每座城市都有封面，且不与其他城市共用同一张', async () => {
+  const { CITY_COVER } = await import('../js/cover-db.js');
+  const miss = [], shared = [], seen = new Map();
+  for (const p of PROVINCES) for (const c of p.cities) {
+    const key = p.n + '|' + c.n;
+    const f = CITY_COVER[key];
+    if (!f) { miss.push(key); continue; }
+    if (seen.has(f)) shared.push(seen.get(f) + ' 与 ' + key);
+    else seen.set(f, key);
+  }
+  assert.deepEqual(miss, [], '缺封面的城市：' + miss.join('、'));
+  assert.deepEqual(shared, [], '两座城市共用同一张：' + shared.join('、'));
+});
+
 
 // 长介绍库：详情页「历史沿革」正文。
 // 抓取管线原先只判「是不是消歧义页」，同名异地 / 同名异物的整段正文照样入库，
