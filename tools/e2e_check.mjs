@@ -229,6 +229,9 @@ function check(name, ok, detail = '') {
       // 长介绍分片也要过一道：默认全放行，只在「分片失败可恢复」那条用例里
       // 掐断一次 long-db-N.js，模拟弱网下一次请求被中断。
       { urlPattern: '*long-db-*', requestStage: 'Request' },
+      // 简介分片同理：只在「搜索不等整库」那条用例里把请求扣住不放，
+      // 用来证明名称命中不依赖这 570KB。
+      { urlPattern: '*spot-desc-shard-*', requestStage: 'Request' },
     ],
   });
   let longBlockIdx = null;   // 要掐断的分片号（掐一次后自动清空）
@@ -237,10 +240,21 @@ function check(name, ok, detail = '') {
   let mapBlockOnce = false;  // 掐断一次静态图请求，验证"接口被拦"时的降级
   let mapBlockHits = 0;
   let mapReqSeen = 0;        // 底图请求次数（含被掐断的），用来验证"不重复发"与"重试真发"
+  // 简介分片：descHold 期间只记账不 continue（请求被扣在 Fetch 拦截里），
+  // 用来验证"首条搜索结果不等整库"。descReqSeen 统计真正发出的请求数。
+  let descHold = false;
+  let descReqSeen = 0;
+  const descHeld = [];
   cdp.onFetch = async (params) => {
     try {
       const url = params.request.url || '';
       if (/api\.map\.baidu\.com/.test(url)) mapReqSeen++;
+      if (/spot-desc-shard-\d+\.js/.test(url)) {
+        descReqSeen++;
+        if (descHold) { descHeld.push(params.requestId); return; }
+        await cdp.send('Fetch.continueRequest', { requestId: params.requestId });
+        return;
+      }
       const lm = url.match(/long-db-(\d+)\.js/);
       if (lm) {
         const idx = Number(lm[1]);
@@ -781,10 +795,59 @@ function check(name, ok, detail = '') {
     `closed=${esc.closed} 焦点回到="${esc.backTo}" 期望="${opener}"`);
 
   // 7) 搜索
+  //
+  // 7-0) 首条结果不能等整库简介。
+  //      名称/城市/省份都在本地 china-data 里（进站就绪），只有"正文提到"
+  //      的命中要 8 片简介（约 570KB）。以前的实现把「有没有结果」压在整库
+  //      到货上：第一次搜索必须先下完 570KB 才渲染，1Mbps 实测首条结果 5.8s。
+  //      这里把分片请求扣在 Fetch 拦截里不放行，首条结果照样得出来；
+  //      顺带证明「出结果时整库请求一个都没发」。
+  descHold = true;
+  descHeld.length = 0;
+  const descBefore = descReqSeen;
+  const sFirst = await cdp.eval(`(async()=>{
+    const box = document.getElementById('search-results');
+    box.innerHTML = '';
+    const i = document.getElementById('search-input');
+    const t0 = performance.now();
+    i.value = '西湖';
+    i.dispatchEvent(new Event('input', { bubbles:true }));
+    for (let k = 0; k < 80; k++) {
+      const it = document.querySelector('#search-results .sr-item');
+      if (it) return JSON.stringify({ ms: Math.round(performance.now() - t0),
+        label: it.querySelector('b').textContent, n: document.querySelectorAll('#search-results .sr-item').length,
+        head: document.querySelector('.sr-head').textContent });
+      await new Promise(r => setTimeout(r, 25));
+    }
+    return JSON.stringify({ ms: -1, label: '', n: 0, head: '' });
+  })()`);
+  const sf = JSON.parse(sFirst);
+  const descReqBeforeFirst = descReqSeen - descBefore;
+  check('首条搜索结果不等整库简介（分片被扣住时照样出名称命中）',
+    sf.n > 0 && sf.label.includes('西湖') && sf.ms < 1500,
+    `${sf.ms}ms 首条="${sf.label}" 共 ${sf.n} 条`);
+  check('出首条结果时一个简介分片请求都没发', descReqBeforeFirst === 0,
+    `请求数 ${descReqBeforeFirst}，被扣住 ${descHeld.length} 个`);
+
+  // 7-0b) 面板静置后补入正文命中：条数变多，且"加载中"提示消失
+  descHold = false;
+  for (const rid of descHeld) await cdp.send('Fetch.continueRequest', { requestId: rid }).catch(() => {});
+  let settled = null;
+  for (let k = 0; k < 40; k++) {
+    const st = await cdp.eval(`(() => { const h = document.querySelector('.sr-head');
+      return JSON.stringify({ n: document.querySelectorAll('.sr-item').length,
+        head: h ? h.textContent : '', loading: h ? /加载中/.test(h.textContent) : false }); })()`);
+    settled = JSON.parse(st);
+    if (!settled.loading) break;
+    await sleep(250);
+  }
+  check('静置后补入正文命中，条数变多且提示收掉',
+    settled && !settled.loading && settled.n > sf.n,
+    `首版 ${sf.n} 条 → 补版 ${settled ? settled.n : '?'} 条，head="${settled ? settled.head.slice(0, 18) : ''}"`);
+
   await cdp.eval("const i=document.getElementById('search-input'); i.value='太湖'; i.dispatchEvent(new Event('input',{bubbles:true}))");
   // 搜索是防抖 + 异步查库，固定睡 900ms 会随机器负载偶发落空 → 改成轮询。
-  // 正文全文匹配要等 8 片简介全部到位（约 656KB），线上慢网可能比本地久，
-  // 给到 6 秒上限。
+  // 首版结果用的是本地数据，正常几百毫秒内就到；上限留 6 秒给慢机器。
   let sres = 0;
   for (let i = 0; i < 24; i++) {
     sres = await cdp.eval("document.querySelectorAll('#search-results .sr-item').length");

@@ -436,6 +436,8 @@ function renderTimeline() {
 let searchType = 'all';      // all | spot | city | prov
 let searchProv = '';         // '' = 全国
 let searchTimer = null;
+let searchSig = '';          // 当前面板上那版结果的指纹（判断后台补版要不要重绘）
+let descPassTimer = null;    // 正文匹配补版的定时器（面板静置后才拉整库）
 
 function escHtml(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, c =>
@@ -497,38 +499,30 @@ function openSearchHit(r) {
   else { openSpot(r.prov, r.city, r.spot, true); }
 }
 
-function doSearch() {
-  const q = $('#search-input').value.trim();
-  const box = $('#search-results');
-  if (!q) {
-    box.classList.remove('show');
-    box.innerHTML = '';
-    setSearchStatus('');
-    return;
-  }
-  // 简介是分片加载的：只到了当前省那一片时，别的省照样读不到，
-  // 正文匹配会漏。搜索是唯一需要整库的场景（用户明确要搜，值得这 656KB），
-  // 这里先把 8 片都拉齐再搜。
-  if (!descAllLoaded()) {
-    loadAllDesc().then(() => {
-      // 加载期间用户可能已经改了关键词或清空输入，过期就不重绘
-      if ($('#search-input').value.trim() === q) doSearch();
-    });
-    return;
-  }
-  // 纯英文输入按拼音匹配：手机上常直接敲拼音，且不确定字怎么写。
-  // 只有英文才加载拼音索引（66KB），中文搜索不受影响。
+// ═══ 搜索的取数策略：先出「手上就有的命中」，再补「要下载的命中」 ═══
+//
+// 名称 / 城市 / 省份都在本地 china-data 里（进站就绪，零请求），
+// 只有「正文提到」这类命中要靠简介库 —— 分片状态下就是 8 片、约 570KB。
+//
+// 旧实现把「有没有结果」整个压在整库到货上：第一次搜索必须先下完 8 片才渲染，
+// 于是哪怕用户只是敲了个景点名（本地数据里明明立刻能命中），也要干等下载。
+// 1Mbps + 150ms 实测首条结果 5.8s，慢网下十几秒，期间面板一片空白。
+//
+// 现在分两段：
+//   1) 立刻用手上有的数据出一版（名称命中一条不少，正文命中「已有几片算几片」）
+//   2) 整库 / 拼音索引到货后重算一次，结果有变（多出正文命中）才重绘
+// 第 2 步用指纹比对：结果一样就一个 DOM 都不动，免得焦点和滚动位置白跳一次；
+// 不一样时先记住焦点与滚动位置，重绘后按原样还回去。
+function searchSignature(results) {
+  return results.length + '#' + results.slice(0, 40).map(r => r.rank + r.type + r.label).join('|');
+}
+
+function computeSearch(q, pyReady) {
   const ascii = /^[a-z\s]+$/i.test(q);
-  if (ascii && !PINYIN_DB.ready()) {
-    PINYIN_DB.load().then(() => {
-      if ($('#search-input').value.trim() === q) doSearch();
-    });
-    return;
-  }
   const qq = q.toLowerCase().replace(/\s+/g, '');
   // 全拼前缀/包含，或首字母完全匹配（"gg" 不是 "gugong" 的子串，得单独判）
   const pyHit = name => {
-    if (!ascii || !qq) return false;
+    if (!ascii || !pyReady || !qq) return false;
     const v = PINYIN_DB.get(name);
     if (!v) return false;
     const [full, ini] = v.split('|');
@@ -537,14 +531,22 @@ function doSearch() {
   // 命中采集与排序在 search-core.js（纯函数，可单测）：
   // 名称命中不受条数上限约束，正文命中才按配额收，避免前面的省份用正文
   // 把配额吃光、后面省份"名字对得上"的景点反而搜不到。
-  const results = collectHits(PROVINCES, q, {
+  return collectHits(PROVINCES, q, {
     type: searchType,
     prov: searchProv,
     readDesc: realDesc,
     pyHit,
   });
+}
+
+function paintSearch(q, results, pending) {
+  const box = $('#search-results');
   const shown = results.slice(0, 40);
   const focusMark = searchFocusMark(box);
+  const keepScroll = box.scrollTop;
+  // 面板开着时还要把「正文匹配还没补齐」说清楚，否则短一截的条数会被当成最终结果
+  const more = pending ? '，正文匹配加载中…' : '';
+  const trimmed = !pending && results.length > shown.length ? '（显示前 ' + shown.length + '）' : '';
 
   // 筛选条
   const chips = [
@@ -556,17 +558,23 @@ function doSearch() {
     '</select>';
 
   if (!results.length) {
+    // 正文还没补进来时不能说「没找到」：名称命中为空不代表真的没有，
+    // 只是那几条要靠正文匹配才现形（旧实现正是在这里让用户先看到"没找到"再变出来）
+    const empty = pending
+      ? '正在检索「' + escHtml(q) + '」…'
+      : '没找到「' + escHtml(q) + '」' + (searchProv ? '（限 ' + escHtml(searchProv) + '）' : '') +
+        '，换个词试试（已搜 ' + stats().spots + ' 处风景）';
     box.innerHTML = '<div class="sr-filters">' + chips + provSel + '</div>' +
-      '<div class="sr-head">没找到「' + escHtml(q) + '」' + (searchProv ? '（限 ' + escHtml(searchProv) + '）' : '') +
-      '，换个词试试（已搜 ' + stats().spots + ' 处风景）</div>';
+      '<div class="sr-head">' + empty + '</div>';
     bindSearchFilters(box);
     box.classList.add('show');
-    setSearchStatus('没找到与 ' + q + ' 相关的景点');
+    setSearchStatus(pending ? '正在检索' : '没找到与 ' + q + ' 相关的景点');
     restoreSearchFocus(box, focusMark);
+    searchSig = searchSignature(results);
     return;
   }
   box.innerHTML = '<div class="sr-filters">' + chips + provSel + '</div>' +
-    '<div class="sr-head">找到 ' + results.length + ' 条结果' + (results.length > shown.length ? '（显示前 ' + shown.length + '）' : '') + '</div>';
+    '<div class="sr-head">找到 ' + results.length + ' 条结果' + trimmed + more + '</div>';
   shown.forEach((r, i) => {
     const it = document.createElement('div');
     it.className = 'sr-item';
@@ -593,8 +601,71 @@ function doSearch() {
   });
   bindSearchFilters(box);
   box.classList.add('show');
-  setSearchStatus('找到 ' + results.length + ' 条结果' + (shown.length < results.length ? '，显示前 ' + shown.length + ' 条' : '') + '，按向下键进入列表');
+  setSearchStatus('找到 ' + results.length + ' 条结果' + (shown.length < results.length ? '，显示前 ' + shown.length + ' 条' : '') +
+    (pending ? '，正文匹配加载中' : '，按向下键进入列表'));
+  // 后台补版时结果变长：原来聚焦的第 N 条可能没了，就近落在最后一条上，
+  // 别把键盘用户一脚踢回输入框
+  if (focusMark && 'item' in focusMark && focusMark.item >= shown.length) focusMark.item = shown.length - 1;
   restoreSearchFocus(box, focusMark);
+  box.scrollTop = keepScroll;
+  searchSig = searchSignature(results);
+}
+
+function doSearch() {
+  const q = $('#search-input').value.trim();
+  const box = $('#search-results');
+  if (!q) {
+    box.classList.remove('show');
+    box.innerHTML = '';
+    searchSig = '';
+    clearTimeout(descPassTimer);
+    setSearchStatus('');
+    return;
+  }
+  // 纯英文输入按拼音匹配：手机上常直接敲拼音，且不确定字怎么写。
+  // 只有英文才加载拼音索引（66KB），中文搜索不受影响。
+  const ascii = /^[a-z\s]+$/i.test(q);
+  const pyReady = !ascii || PINYIN_DB.ready();
+  paintSearch(q, computeSearch(q, pyReady), !descAllLoaded() || !pyReady);
+  ensureSearchData(q, ascii, pyReady);
+}
+
+// 后台补齐搜索要用的数据；到货后同一关键词再算一次，结果有变才重绘
+//
+// 拼音索引只有 66KB、且是「英文输入能不能命中中文名」的前提，立刻补；
+// 简介整库 570KB 就不必抢跑 —— 大多数人搜的是名字，看完前几条就点走了，
+// 那 570KB 白下。这里等面板静置 DESC_PASS_DELAY 再拉：真要看正文命中的
+// 人在这个时间内不会走，拉回来补一版；已经点走的人连请求都不会发。
+const DESC_PASS_DELAY = 700;
+
+function ensureSearchData(q, ascii, pyReady) {
+  if (ascii && !pyReady) {
+    PINYIN_DB.load().catch(() => {}).then(() => {
+      if ($('#search-input').value.trim() !== q) return;
+      if (!$('#search-results').classList.contains('show')) return;
+      const results = computeSearch(q, PINYIN_DB.ready());
+      if (searchSignature(results) === searchSig) return;
+      paintSearch(q, results, !descAllLoaded());
+    });
+  }
+  clearTimeout(descPassTimer);
+  descPassTimer = null;
+  if (descAllLoaded()) return;
+  descPassTimer = setTimeout(() => {
+    descPassTimer = null;
+    // 面板已经关了（点走结果 / Esc）就不必再为一次没人看的搜索下 570KB
+    if (!$('#search-results').classList.contains('show')) return;
+    // 分片失败时 loadShard 会自己吞掉异常（这次没有正文，下次再试），
+    // 这里再兜一层，免得任何意外让整轮搜索停在第一版
+    loadAllDesc().catch(() => {}).then(() => {
+      // 加载期间用户可能改了关键词或清空输入，过期就不重绘
+      if ($('#search-input').value.trim() !== q) return;
+      if (!$('#search-results').classList.contains('show')) return;
+      const results = computeSearch(q, !ascii || PINYIN_DB.ready());
+      if (searchSignature(results) === searchSig) return;
+      paintSearch(q, results, false);
+    });
+  }, DESC_PASS_DELAY);
 }
 
 function bindSearchFilters(box) {
