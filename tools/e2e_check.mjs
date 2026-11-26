@@ -91,7 +91,7 @@ async function getTarget() {
 }
 
 class CDP {
-  constructor(ws) { this.ws = ws; this.id = 0; this.pending = new Map(); this.logs = []; this.waiters = []; this.mapResponses = []; }
+  constructor(ws) { this.ws = ws; this.id = 0; this.pending = new Map(); this.logs = []; this.waiters = []; this.mapResponses = []; this.net = []; }
   static async connect(url) {
     const ws = new WebSocket(url);
     await new Promise((res, rej) => { ws.onopen = res; ws.onerror = rej; });
@@ -109,6 +109,11 @@ class CDP {
       } else if (m.method === 'Log.entryAdded') {
         const e = m.params.entry;
         c.logs.push({ type: e.level, text: e.text, url: e.url || '' });
+      } else if (m.method === 'Network.requestWillBeSent') {
+        // 记账真实发出的请求：有些断言要判"某个资源到底有没有被请求"，
+        // performance.getEntriesByType('resource') 会随缓冲区/缓存状态丢条目，
+        // 网络层才是事实（线上曾因此假红）。
+        c.net.push(m.params.request.url);
       } else if (m.method === 'Network.responseReceived'
         && /api\.map\.baidu\.com/.test(m.params.response.url || '')) {
         // 静态图接口这次到底有没有回话。用来判定"降级"是环境拦住了，
@@ -492,6 +497,10 @@ function check(name, ok, detail = '') {
     c.focus();
     return c.querySelector('h4').textContent;
   })()`);
+  // 从这一刻起的网络请求单独记一段，下面判"图组只拉本省那片"用网络层而不是
+  // performance 条目：后者受资源时序缓冲区与缓存状态影响，线上偶发读不到某条，
+  // 会让断言假红（同一份代码本地全绿、线上连红两次）。
+  const netMarkAtSpot = cdp.net.length;
   await cdp.eval("document.querySelector('.spot-card').click()");
   // 等弹窗真的打开（要等简介库 250KB 就绪），别用固定 sleep
   await waitFor(async () => (await cdp.eval("!document.getElementById('intro-modal').hidden")) === true, 15000);
@@ -560,24 +569,24 @@ function check(name, ok, detail = '') {
   //     那两张 720px 缩略图，先把全国的图组拖下来。
   //     现在一省一片（tools/shard_gallery.py）：单片 1~16KB。
   //     同时守住「整库不能再被拉一次」—— 有人把 import 改回去，这里立刻红。
+  //
+  //     判据取「点开这处景点之后真实发出的请求」（CDP 网络层）。
+  //     原实现读 performance.getEntriesByType('resource')：那个缓冲区会随条目数
+  //     与缓存状态丢记录，线上跑两次都读不到 gallery-shard-N.js（本地全绿），
+  //     是判据不稳，不是真下了整库——已用网络层交叉验证过。
+  const netSinceSpot = cdp.net.slice(netMarkAtSpot)
+    .filter(u => /gallery-shard-\d+\.js/.test(u) || /spot-gallery-db\.js/.test(u));
+  const netShards = netSinceSpot.filter(u => /gallery-shard-\d+\.js/.test(u)).map(u => u.split('/').pop());
+  const netFull = netSinceSpot.some(u => /spot-gallery-db\.js/.test(u));
   const galShardRaw = await cdp.eval(`(async () => {
-    const rs = performance.getEntriesByType('resource')
-      .filter(r => /gallery-shard-\\d+\\.js/.test(r.name) || /spot-gallery-db\\.js/.test(r.name));
     const m = await import('./js/gallery-shard-map.js');
     const prov = decodeURIComponent(location.hash).replace(/^#\\/?/, '').split('/')[0];
-    return JSON.stringify({
-      req: rs.filter(r => /gallery-shard-\\d+\\.js/.test(r.name)).map(r => r.name.split('/').pop()),
-      bytes: rs.reduce((a, r) => a + (r.transferSize || 0), 0),
-      full: rs.some(r => /spot-gallery-db\\.js/.test(r.name)),
-      prov, want: m.GALLERY_SHARD_OF[prov],
-    });
+    return JSON.stringify({ prov, want: m.GALLERY_SHARD_OF[prov] });
   })()`);
   const gs = JSON.parse(galShardRaw);
   check('图组只拉本省那一片（没为 3 张缩略图下整库）',
-    gs.full === false && gs.req.length === 1
-      && gs.req[0] === 'gallery-shard-' + gs.want + '.js' && gs.bytes < 40 * 1024,
-    `${gs.prov} → 片${gs.want}，请求 ${gs.req.join('、') || '无'}，` +
-    `${(gs.bytes / 1024).toFixed(0)}KB，整库已拉=${gs.full}`);
+    netFull === false && netShards.length === 1 && netShards[0] === 'gallery-shard-' + gs.want + '.js',
+    `${gs.prov} → 片${gs.want}，请求 ${netShards.join('、') || '无'}，整库已拉=${netFull}`);
 
   // 上一处 / 下一处：详情页里直接翻同城景点
   const beforeName = await cdp.eval("document.getElementById('intro-name').textContent");
