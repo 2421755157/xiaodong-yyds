@@ -187,6 +187,18 @@ class CDP {
     if (r.exceptionDetails) throw new Error(r.exceptionDetails.text + ' ' + JSON.stringify(r.exceptionDetails.exception || {}));
     return r.result.value;
   }
+  // 真实按键。不能用 document.dispatchEvent(new KeyboardEvent(...)) 代替：
+  // 事件目标是 document 本身时，捕获与冒泡监听按**注册顺序**执行，抢不到先手；
+  // 而真实按键的目标是聚焦元素，捕获阶段才会先于详情页的冒泡监听。
+  // 「全景里按方向键会不会顺手换掉景点」这类断言必须走这条路径才作数。
+  async key(k, code, vk, modifiers = 0) {
+    await this.send('Input.dispatchKeyEvent', {
+      type: 'keyDown', key: k, code, windowsVirtualKeyCode: vk, modifiers,
+    });
+    await this.send('Input.dispatchKeyEvent', {
+      type: 'keyUp', key: k, code, windowsVirtualKeyCode: vk, modifiers,
+    });
+  }
 }
 
 const results = [];
@@ -663,7 +675,9 @@ function check(name, ok, detail = '') {
   const panoBtn = await cdp.eval("!document.getElementById('intro-pano').hidden");
   check('全景按钮出现（有全景资源的景点）', panoBtn === true, 'hidden=' + panoBtn);
   if (panoBtn) {
-    await cdp.eval("document.getElementById('intro-pano').click()");
+    const spotBefore = await cdp.eval("document.getElementById('intro-name').textContent");
+    // 用键盘打开：先聚焦按钮再回车，等同于键盘用户的操作路径
+    await cdp.eval("(()=>{const b=document.getElementById('intro-pano');b.focus();b.click();})()");
     // 全景浮层是打开的瞬间才由 panorama.js 动态创建，且要现拉 three.js；
     // 线上（非 localhost）首次加载明显更慢，等 2.2s 会假失败
     await sleep(4500);
@@ -672,11 +686,63 @@ function check(name, ok, detail = '') {
     check('全景查看器打开', panoOpen === true, 'open=' + panoOpen);
     const canvas = await cdp.eval("!!document.querySelector('#pano-overlay canvas')");
     check('全景 WebGL 画布渲染', canvas === true, 'canvas=' + canvas);
-    await cdp.eval("document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}))");
+
+    // 对话框语义 + 焦点落位。
+    // 以前浮层是个裸 div：读屏不播报"打开了什么"，焦点还留在背后被遮住的按钮上，
+    // Tab 一路在景点弹窗里走，屏幕上却只看到一张全景图。
+    const pa = JSON.parse(await cdp.eval(`(() => {
+      const o = document.getElementById('pano-overlay');
+      const t = document.getElementById('pano-title');
+      const a = document.activeElement;
+      return JSON.stringify({
+        role: o.getAttribute('role'), modal: o.getAttribute('aria-modal'),
+        title: (t && t.textContent) || '', inPano: o.contains(a),
+        active: a.className || a.id || a.tagName,
+      });
+    })()`));
+    check('全景浮层是对话框，焦点落在画面里',
+      pa.role === 'dialog' && pa.modal === 'true' && pa.title.length > 0 && pa.inPano === true,
+      `role=${pa.role} modal=${pa.modal} 标题=${pa.title} 焦点=${pa.active}`);
+
+    // Tab 不许跑到背后那层
+    const trail = [];
+    for (let i = 0; i < 3; i++) {
+      await cdp.key('Tab', 'Tab', 9);
+      await sleep(120);
+      trail.push(await cdp.eval(`(() => {
+        const o = document.getElementById('pano-overlay');
+        const a = document.activeElement;
+        return (o.contains(a) ? '内:' : '外:') + (a.className || a.id || a.tagName);
+      })()`));
+    }
+    check('Tab 在全景浮层内循环，不落到背后的按钮', trail.every(x => x.startsWith('内:')), trail.join(' → '));
+
+    // 方向键只转视角，不该顺带把背后景点翻走
+    // （原先 direction 事件从浮层冒泡到详情页的「← → 翻上一处」，按两下就换景点）
+    await cdp.key('ArrowLeft', 'ArrowLeft', 37);
+    await sleep(150);
+    await cdp.key('ArrowRight', 'ArrowRight', 39);
+    await sleep(250);
+    const afterArrows = await cdp.eval(`(() => {
+      const o = document.getElementById('pano-overlay');
+      return JSON.stringify({
+        name: document.getElementById('intro-name').textContent,
+        open: !!o && !o.hidden,
+      });
+    })()`);
+    const aa = JSON.parse(afterArrows);
+    check('全景里按方向键不会顺带换掉背后的景点',
+      aa.name === spotBefore && aa.open === true,
+      `${spotBefore} → ${aa.name}，全景仍开=${aa.open}`);
+
+    await cdp.key('Escape', 'Escape', 27);
     await sleep(600);
     const panoClosed = await cdp.eval(
       "(()=>{const b=document.getElementById('pano-overlay');return !b || b.hidden})()");
     check('全景 ESC 关闭', panoClosed === true, 'hidden=' + panoClosed);
+    const backFocus = await cdp.eval(
+      "(()=>{const a=document.activeElement;return a.id||a.className||a.tagName})()");
+    check('关掉全景后焦点回到「全景」按钮', backFocus === 'intro-pano', '焦点=' + backFocus);
   }
 
   // 5d) 位置小地图（百度静态图）

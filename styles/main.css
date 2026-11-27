@@ -658,12 +658,15 @@ input,textarea{font-family:inherit;color:var(--ink)}
 }
 .pano-close:hover{color:var(--gold)}
 .pano-stage{flex:1 1 auto;position:relative;overflow:hidden;background:#05080a}
+/* 画面本身可聚焦（键盘环视的落点）。它是 role=group 而非控件，
+   全局的 [role="button"] 焦点环盖不到，这里单独补一圈内嵌环。 */
+.pano-stage:focus-visible{outline:2px solid var(--gold);outline-offset:-4px}
 .pano-canvas{display:block;width:100%;height:100%;touch-action:none;cursor:grab}
 .pano-canvas:active{cursor:grabbing}
 .pano-fallback{width:100%;height:100%;object-fit:contain}
 .pano-hint{
-  flex:0 0 auto;text-align:center;font-size:11px;letter-spacing:3px;
-  color:var(--ink-dim);padding:10px 0 14px;
+  flex:0 0 auto;text-align:center;font-size:11px;letter-spacing:2px;
+  color:var(--ink-dim);padding:10px 12px 14px;line-height:1.8;
 }
 .pano-btn{border-color:var(--gold-dim);color:var(--gold)}
 .pano-btn:hover{border-color:var(--gold);color:var(--gold)}

@@ -99,6 +99,10 @@ export function enhanceDialogs() {
     }
 
     if (e.key !== 'Tab') return;
+    // 全景浮层不是 .modal，它自己管 Tab 循环（关闭按钮 ↔ 画面）。
+    // 这里若不退让，会把焦点又拽回背后那个景点弹窗，用户看不见焦点落在哪。
+    const pano = document.getElementById('pano-overlay');
+    if (pano && !pano.hidden) return;
     const items = focusables(top);
     if (!items.length) return;
     const first = items[0];
