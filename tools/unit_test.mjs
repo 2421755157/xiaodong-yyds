@@ -687,9 +687,15 @@ const LONG_DUP = (() => {
   return Object.keys(cities).filter(n => cities[n].size > 1);
 })();
 
-await test('长介绍库: 分片合起来有量（导出没断链）', () => {
+await test('长介绍库: 分片合起来与源库条数一致（导出没断链）', () => {
+  // 原来写的是「≥1600 条」这种魔数：清一次内容（比如剔掉 33 条讲错地方的正文）
+  // 就会假失败，而真正的断链（少导出几个分片）反而要靠人去掰指头数。
+  // 直接和 data/long_db.json 比条数：少一条就红。
+  const src = JSON.parse(readFileSync(new URL('../data/long_db.json', import.meta.url), 'utf8'));
   const n = Object.keys(LONG_DB).length;
-  assert.ok(n >= 1600, '只读回 ' + n + ' 条，分片可能没导出完整');
+  const m = Object.keys(src).length;
+  assert.equal(n, m, `导出 ${n} 条，源库 ${m} 条，分片可能没导出完整`);
+  assert.ok(n > 1000, '只读回 ' + n + ' 条');
 });
 
 await test('长介绍库: 重名景点不得残留裸名键', () => {

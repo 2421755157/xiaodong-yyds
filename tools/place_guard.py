@@ -24,9 +24,10 @@
     from place_guard import mismatch
     mismatch(text, city, prov)   # 返回原因字符串；None 表示通过
 """
+import os
 import re
 
-from common import is_disambig, is_list_page   # 消歧义/清单页判定只此一份，别在两处各写一套正则
+from common import DATA, load_json, is_disambig, is_list_page   # 消歧义/清单页判定只此一份，别在两处各写一套正则
 
 # 省级名（去掉「省/市/自治区/特别行政区」后缀后的写法）
 PROV_SUFFIX = re.compile(r'(省|市|自治区|特别行政区|壮族|回族|维吾尔|自治州)+$')
@@ -52,6 +53,9 @@ _RIVAL_MUNI = re.compile('|'.join(MUNICIPALITIES))
 
 # 境外国名。后面紧跟「族/人/语/半岛/海/江/河/湖/山/边界」时是民族、语言、
 # 地理接壤表述，不算讲境外。
+# 早先这里还排除了「军」，于是「19xx 年间在加拿大军队服预备役」被判成正常表述，
+# 邢台「天河山」的正文就这么挂上了一个加拿大政治人物（全篇讲高盛、卡尼、
+# 曼尼托巴大学，一个字没提太行山）。军队是机构、不是地理接壤，不能排除。
 FOREIGN_WORDS = (
     '美国', '加拿大', '墨西哥', '巴西', '阿根廷', '智利', '英国', '法国',
     '德国', '意大利', '西班牙', '葡萄牙', '荷兰', '比利时', '瑞士', '奥地利',
@@ -64,7 +68,7 @@ FOREIGN_WORDS = (
 )
 _FOREIGN = re.compile(
     '(' + '|'.join(FOREIGN_WORDS) + ')'
-    r'(?!族|人|语|半岛|海|江|河|湖|山|边界|边境|使馆|联邦|军|籍)')
+    r'(?!族|人|语|半岛|海|江|河|湖|山|边界|边境|使馆|联邦|籍)')
 
 # 「定位」语境：国名前面这几个词说明它是在交代地理位置，
 # 而不是在讲命名来源（「尼泊尔称萨加玛塔峰」）。
@@ -117,6 +121,72 @@ def mismatch(text, city, prov):
             return '首句讲的是境外（%s），全文未提%s' % (word, city or prov)
         if _LOCATOR.search(head[:start]):
             return '首句讲的是境外（%s），全文未提%s' % (word, city or prov)
+    return None
+
+
+# ═══ 同名车站 / 轨道线路 ═══
+# 景点名常被地铁站、火车站顺手借用：「长影世纪城站」「野象谷站」「牛背梁站」
+# 「中华巴洛克街区站」「北山公园站」「大王山（云巴）」。这类词条正文里
+# 省市名一个不缺，地域闸门据此放行，于是景区详情页的「历史沿革」成了
+# 站台规模、到发线数量、换乘线路走向 —— 比没有正文更糟，因为它看上去很像真的。
+# 判据只看正文开头，避免误杀「景区距高铁站 5 公里」这种正经写法：
+#   1) 开头 16 字内以「……站」+ 是/位于/， 起句；
+#   2) 开头 48 字内同时出现轨道类词（地铁/港铁/轨道交通…）与线路类词（车站/线路/号线）。
+_STATION_HEAD = re.compile(
+    r'^(?:本站|该站|车站|线路)|^[^。！？]{0,16}?(?<!电)站(?:是|位于|，|,|、|（|\()')
+_RAIL_HINT = re.compile(r'(港铁|地铁|轨道交通|城际铁路|铁路线路|捷运|轻轨|\d+号线)')
+_RAIL_LINE = re.compile(r'(车站|站台|站房|线路)')
+_RAIL_HEAD_LEN = 48
+
+
+def rail_subject(text):
+    """正文讲的是车站或轨道线路吗？返回原因；None 表示不像。"""
+    if not text:
+        return None
+    if _STATION_HEAD.match(text[:60]):
+        return '车站词条（讲的是同名的地铁/火车站）'
+    head = text[:_RAIL_HEAD_LEN]
+    if _RAIL_HINT.search(head) and _RAIL_LINE.search(head):
+        return '轨道线路词条（讲的是同名的地铁/铁路线）'
+    return None
+
+
+# ═══ 首句就把地点定在另一座城市 ═══
+# 「距离南京市中心约20公里，距离马鞍山市约30公里」——辽宁铁岭的「莲花湖」
+# 挂上了南京石闸湖的湖史；「深圳市南山公园位于深圳市南山区」——西宁的
+# 「南山公园」整篇讲的是深圳那座。
+# 只看**首句**：正文后段出现别的城市太常见（门票由北京市旅游局批、
+# 山系从湖南延伸过来），按全文判会误杀一大片。而且必须「全文找不到本市/本省」，
+# 两个条件同时成立才判 —— 缺一条都容易冤枉人。
+_CITY_NAMES = None
+
+
+def city_names():
+    """地级市名表（data/regions_uniq.json，惰性加载并缓存）"""
+    global _CITY_NAMES
+    if _CITY_NAMES is None:
+        names = set()
+        try:
+            for r in load_json(os.path.join(DATA, 'regions_uniq.json'), []):
+                if r.get('level') == 'city' and r.get('name'):
+                    names.add(r['name'])
+        except Exception:
+            names = set()
+        _CITY_NAMES = names
+    return _CITY_NAMES
+
+
+def rival_admin(text, city, prov):
+    """首句把地点定在别的城市？返回原因；None 表示没有明显冲突。"""
+    if not text or _own_region(text, city, prov):
+        return None
+    first = re.split(r'[。！？\n]', text, 1)[0]
+    for name in city_names():
+        if name in (city, prov_base(prov)) or name not in first:
+            continue
+        m = re.search(re.escape(name) + r'(?:市|县|区)', first)
+        if m:
+            return '首句把地点定在%s，全文未提%s' % (m.group(0), city or prov)
     return None
 
 
@@ -188,6 +258,9 @@ def desc_reject(text, city, prov, name=None):
     work = next((w for w in WORK_WORDS if w in head[:40]), None)
     if work:
         return '同名作品词条（%s）' % work
+    rail = rail_subject(text)
+    if rail:
+        return rail
     return mismatch(text, city, prov)
 
 
@@ -219,10 +292,21 @@ def long_reject(text, places, ok=False, blocked=False, name=None, long_block=Non
         return '同名异地清单页（各地同名景点罗列）'
     if blocked:
         return '短简介已拉黑（维基无对等词条，正文是别的事物）'
+    rail = rail_subject(text)
+    if rail:
+        return rail
     if not places:
         return None
+    # 作品同名的长介绍（《冈仁波齐》是张杨执导的一部电影）：只在正文开头
+    # 就是「一部电影/一首歌」这种判断句、且全文没有本地证据时才判，
+    # 免得误伤「景区曾作为《甲方乙方》取景地」这类正经正文。
+    if not any(_own_region(text, c, p) for p, c in places):
+        if re.search(r'(是|一部|一首|一本)[^，。；]{0,12}(电影|电视剧|歌曲|小说|专辑|话剧|京剧)', text[:60]):
+            return '同名作品词条（正文开头讲的是同名的影视/歌曲）'
+    reasons = []
     for prov, city in places:
-        if not mismatch(text, city, prov):
+        why = mismatch(text, city, prov) or rival_admin(text, city, prov)
+        if not why:
             return None
-    prov, city = places[0]
-    return mismatch(text, city, prov)
+        reasons.append(why)
+    return reasons[0] if reasons else '与所在地不符'
