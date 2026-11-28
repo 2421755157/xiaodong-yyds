@@ -1093,7 +1093,23 @@ async function renderHistory(spot, prov) {
 function coverKey(prov, city, spot) {
   return prov.n + city.n + spot.n;
 }
-function compressImage(file, maxSide = 1400, quality = 0.72) {
+// 封面只占详情页 240px 高的一条，不需要相机原图。localStorage 一共 5MB，
+// 一张 2400×1600 的手机照片按老参数（最长边 1400 / q0.72）编码出来 645KB，
+// 七张就把配额吃光，之后写的足迹/收藏一律写不进去（旧版还会静默吞掉）。
+// 这里按"体积预算"逐档降尺寸+质量，取第一个达标的档位：常用照片落在
+// 900~1000px / 100KB 上下，一屏 2x 看依然清楚，配额能放下 40 张左右。
+const COVER_BUDGET = 128 * 1024;          // dataURL 字符数上限（≈ 96KB 原始 JPEG）
+const COVER_LADDER = [[1200, 0.72], [1000, 0.70], [900, 0.66], [800, 0.62], [700, 0.58]];
+function encodeAt(img, maxSide, quality) {
+  let w = img.width, h = img.height;
+  const scale = Math.min(1, maxSide / Math.max(w, h));
+  w = Math.round(w * scale); h = Math.round(h * scale);
+  const cv = document.createElement('canvas');
+  cv.width = w; cv.height = h;
+  cv.getContext('2d').drawImage(img, 0, 0, w, h);
+  return cv.toDataURL('image/jpeg', quality);
+}
+function compressImage(file) {
   return new Promise((resolve, reject) => {
     const fr = new FileReader();
     fr.onerror = () => reject(new Error('读取失败'));
@@ -1101,15 +1117,14 @@ function compressImage(file, maxSide = 1400, quality = 0.72) {
       const img = new Image();
       img.onerror = () => reject(new Error('解码失败'));
       img.onload = () => {
-        let w = img.width, h = img.height;
-        const scale = Math.min(1, maxSide / Math.max(w, h));
-        w = Math.round(w * scale); h = Math.round(h * scale);
-        const cv = document.createElement('canvas');
-        cv.width = w; cv.height = h;
-        const ctx = cv.getContext('2d');
-        ctx.drawImage(img, 0, 0, w, h);
-        try { resolve(cv.toDataURL('image/jpeg', quality)); }
-        catch (e) { reject(e); }
+        try {
+          let last = '';
+          for (const [side, q] of COVER_LADDER) {
+            last = encodeAt(img, side, q);
+            if (last.length <= COVER_BUDGET) { resolve(last); return; }
+          }
+          resolve(last);                         // 极端噪声图：用最小那档
+        } catch (e) { reject(e); }
       };
       img.src = fr.result;
     };
@@ -1139,7 +1154,14 @@ function bindCoverPicker(prov, city, spot) {
     if (!/^image\//.test(f.type)) { toast('请选择图片文件'); input.value = ''; return; }
     try {
       const dataUrl = await compressImage(f);
-      store.setCover(key, dataUrl);
+      // 存储写满时 setCover 会先淘汰最旧的封面；连淘汰都救不回来就返回 ok:false。
+      // 只有真落盘了才换图、才说"已换成"——否则用户刷新后照片凭空消失。
+      const r = store.setCover(key, dataUrl);
+      if (!r.ok) {
+        toast('本机存储已满，这张封面没能保存', 3400);
+        input.value = '';
+        return;
+      }
       const el = $('#intro-cover');
       el.innerHTML = '<img src="' + dataUrl + '" alt="' + spot.n + '">';
       const ci = el.querySelector('img');
@@ -1147,7 +1169,9 @@ function bindCoverPicker(prov, city, spot) {
       if (reset) reset.hidden = false;
       const hint2 = $('#cover-note');
       if (hint2) hint2.innerHTML = '当前封面为你自选的本机图片，仅保存在你的浏览器里。';
-      toast('封面已换成你自选的照片');
+      toast(r.evicted
+        ? '封面已保存（本机存储已满，清掉了 ' + r.evicted + ' 张最旧的封面）'
+        : '封面已换成你自选的照片', r.evicted ? 3600 : 2600);
       renderNav();                       // 同步刷新卡片封面
     } catch (e) {
       toast('图片处理失败，换张小一点的试试');
@@ -1617,7 +1641,9 @@ function shootCover() {
     c.width = 400; c.height = 240;
     c.getContext('2d').drawImage(src, 0, 0, src.width, src.height, 0, 0, 400, 240);
     const key = activeCtx.prov + activeCtx.city + activeCtx.spotName;
-    store.setCover(key, c.toDataURL('image/jpeg', 0.62));
+    // evict:false —— 这张是程序生成的兜底图，不值得为它扔掉用户自己选的照片。
+    // 存不下就算了，下次进入再截一张，代价只是一次 canvas 拷贝。
+    store.setCover(key, c.toDataURL('image/jpeg', 0.62), { evict: false });
   } catch (e) { /* 忽略 */ }
 }
 
@@ -1807,7 +1833,10 @@ function submitNote() {
   });
   addFpMarker(f);
   closeNote();
-  toast('足迹已留下 · ' + titleFor(store.data.footprints.length));
+  // 没落盘就别报"足迹已留下"——重开页面这条会消失，用户会以为站点在骗人
+  toast(store.lastSaveOk
+    ? '足迹已留下 · ' + titleFor(store.data.footprints.length)
+    : '本机存储已满，这条足迹没能存档', store.lastSaveOk ? 2600 : 3600);
   $('#scene-canvas').requestPointerLock?.();
 }
 

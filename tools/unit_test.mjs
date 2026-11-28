@@ -1061,6 +1061,97 @@ await test('心情卡文字版: 没填名字的人不会读成空署名', async 
   assert.ok(!alt.includes('undefined'), alt);
 });
 
+// ───────────── 本地存储配额：封面不能把足迹挤掉 ─────────────
+// 背景：localStorage 只有 5MB，自定义封面是 dataURL（一张手机照片编码出来几百 KB），
+// 旧实现遇到 QuotaExceededError 直接吞掉 —— 封面写不进、足迹也写不进，界面却照说
+// "已保存"。这组用例守住三条：先扔封面再认输、扔的顺序是最旧优先、认输时必须回滚。
+class FakeStorage {
+  constructor(limit) { this.map = new Map(); this.limit = limit; }
+  getItem(k) { return this.map.has(k) ? this.map.get(k) : null; }
+  setItem(k, v) {
+    let used = 0;
+    for (const [kk, vv] of this.map) if (kk !== k) used += kk.length + vv.length;
+    const add = k.length + String(v).length;
+    if (used + add > this.limit) {
+      const e = new Error('quota'); e.name = 'QuotaExceededError'; throw e;
+    }
+    this.map.set(k, String(v));
+  }
+  removeItem(k) { this.map.delete(k); }
+  clear() { this.map.clear(); }
+  key(i) { return [...this.map.keys()][i] ?? null; }
+  get length() { return this.map.size; }
+}
+let storeSeq = 0;
+async function freshStore(limit) {
+  globalThis.localStorage = new FakeStorage(limit);
+  const mod = await import('../js/store.js?quota=' + (++storeSeq));
+  return mod.store;
+}
+const cover = n => 'data:image/jpeg;base64,' + 'A'.repeat(n);
+
+await test('存储配额: 写满时先淘汰最旧的封面，新封面与足迹都保住', async () => {
+  const st = await freshStore(400 * 1024);
+  st.data.footprints.push({ id: 'fp1', spot: 'x', place: '某处', ts: 1 });
+  st.setCover('a', cover(100 * 1024));
+  st.setCover('b', cover(100 * 1024));
+  st.setCover('c', cover(100 * 1024));
+  const r = st.setCover('d', cover(100 * 1024));   // 第 4 张放不下
+  assert.equal(r.ok, true, '应该淘汰旧封面后写入成功');
+  assert.ok(r.evicted >= 1, '应该报告淘汰张数，实际 ' + r.evicted);
+  const disk = JSON.parse(globalThis.localStorage.getItem('other-side-wuxi-v1'));
+  assert.ok(disk.covers.d, '新封面应落盘');
+  assert.ok(!disk.covers.a, '最旧的封面应被淘汰');
+  assert.equal(disk.footprints.length, 1, '足迹不能被淘汰掉');
+});
+
+await test('存储配额: 淘汰顺序是最旧优先，刚写的最后才轮到', async () => {
+  const st = await freshStore(320 * 1024);
+  st.setCover('a', cover(90 * 1024));
+  st.setCover('b', cover(90 * 1024));
+  st.setCover('c', cover(90 * 1024));
+  st.setCover('b', cover(90 * 1024));              // 重写 b → 变成最新
+  const r = st.setCover('d', cover(90 * 1024));
+  assert.equal(r.ok, true);
+  const disk = JSON.parse(globalThis.localStorage.getItem('other-side-wuxi-v1'));
+  assert.ok(!disk.covers.a, 'a 最旧，应先走');
+  assert.ok(disk.covers.b && disk.covers.c, 'b/c 应还在，实际 ' + Object.keys(disk.covers));
+  assert.deepEqual(disk.coverOrder, ['c', 'b', 'd'], '键序应为写入顺序');
+});
+
+await test('存储配额: 一张都淘汰不了时如实失败，且不留下半条封面', async () => {
+  const st = await freshStore(300 * 1024);
+  globalThis.localStorage.setItem('junk', 'J'.repeat(240 * 1024));   // 别的东西占满了
+  const r = st.setCover('a', cover(100 * 1024));
+  assert.equal(r.ok, false, '写不下时必须返回失败');
+  assert.equal(st.data.covers.a, undefined, '内存里不能留一条没落盘的封面');
+  const raw = globalThis.localStorage.getItem('other-side-wuxi-v1');
+  const disk = raw ? JSON.parse(raw) : {};
+  assert.equal((disk.covers || {}).a, undefined, '磁盘上也不能有');
+  assert.equal(st.getCover('a'), null);
+});
+
+await test('存储配额: 场景兜底封面不会挤掉用户自己的照片', async () => {
+  const st = await freshStore(300 * 1024);
+  st.setCover('mine', cover(120 * 1024));
+  globalThis.localStorage.setItem('junk', 'J'.repeat(150 * 1024));
+  const r = st.setCover('auto', cover(100 * 1024), { evict: false });
+  assert.equal(r.ok, false, '放不下就该放弃，而不是牺牲用户照片');
+  assert.ok(st.getCover('mine'), '用户封面必须还在');
+  assert.equal(st.getCover('auto'), null);
+});
+
+await test('存储配额: 老存档没有 coverOrder 也能按封面键序淘汰', async () => {
+  const st = await freshStore(300 * 1024);
+  // 旧版本存档：只有 covers，没有 coverOrder
+  st.data.covers = { old1: cover(100 * 1024), old2: cover(100 * 1024) };
+  delete st.data.coverOrder;
+  const r = st.setCover('new', cover(100 * 1024));
+  assert.equal(r.ok, true);
+  assert.ok(st.getCover('new'), '新封面应在');
+  assert.ok(!st.getCover('old1'), '没有键序时应按对象键序淘汰最旧的那张');
+});
+
 // ─────────────────────────── 汇总 ───────────────────────────// 注意：不要写 '\n通过 %d，失败 %d' % (...) ——
 // 全角逗号会让 util.format 把 %d 当字面量，整行输出成 NaN。
 console.log('\n通过 ' + passed + '，失败 ' + failed + '，跳过 ' + skipped);

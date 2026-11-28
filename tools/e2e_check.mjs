@@ -10,6 +10,10 @@
 
 const BASE = process.argv[2] || 'http://127.0.0.1:8765/';
 const PORT = process.argv[3] || '9222';
+
+import { writeFileSync, unlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 const ORIGIN = new URL(BASE).origin;
 
 // 外域图片/接口加载失败 ≠ 站点出错。
@@ -2248,6 +2252,118 @@ function check(name, ok, detail = '') {
   check('占位格不可点、名称不冒充按钮',
     !!phInfo && phInfo.zoom && phInfo.tab === null && phInfo.aria.startsWith('暂无更多实景图'),
     phInfo ? 'no-zoom=' + phInfo.zoom + ' tabindex=' + phInfo.tab + ' aria=' + phInfo.aria : '');
+
+  // 15b) 自定义封面：编码体积 + 存储写满时的兜底
+  //      自定义封面存在 localStorage（上限 5MB）。按老参数（最长边 1400 / q0.72），
+  //      一张 2400×1600 的手机照片编码出来 645KB，七张就把配额吃光；而旧版
+  //      store.save() 把 QuotaExceededError 直接吞掉 —— 之后写的足迹、收藏、
+  //      设置全部静默丢失，界面还照说"已保存"。这里守三件事：
+  //        ① 上传后体积受控（不是相机原图直接塞进去）；
+  //        ② 写满时先淘汰最旧的封面，足迹一条不能少，提示要说实话；
+  //        ③ 连淘汰都救不回来时如实报错，不能让用户以为存上了。
+  await cdp.send('DOM.enable');
+  const coverFile = join(tmpdir(), 'xd-cover-' + Date.now() + '.jpg');
+  // 造一张 2400×1600 的"照片"：满屏噪声是最难压的一类，用它当最坏情况
+  const bigShot = await cdp.eval(`(() => {
+    const c = document.createElement('canvas'); c.width = 2400; c.height = 1600;
+    const x = c.getContext('2d');
+    const im = x.createImageData(c.width, c.height);
+    for (let i = 0; i < im.data.length; i += 4) {
+      const v = (i * 2654435761) >>> 0;
+      im.data[i] = v & 255; im.data[i + 1] = (v >> 8) & 255; im.data[i + 2] = (v >> 16) & 255; im.data[i + 3] = 255;
+    }
+    x.putImageData(im, 0, 0);
+    return c.toDataURL('image/jpeg', 0.9);
+  })()`);
+  writeFileSync(coverFile, Buffer.from(bigShot.split(',')[1], 'base64'));
+  const spotUrl = tag => BASE.replace(/\/$/, '') + '/?c=' + tag + '#/'
+    + enc('吉林') + '/' + enc('通化') + '/' + enc('三角龙湾');
+  const uploadCover = async () => {
+    const doc = await cdp.send('DOM.getDocument', { depth: -1 });
+    const q = await cdp.send('DOM.querySelector', { nodeId: doc.root.nodeId, selector: '#cover-input' });
+    await cdp.send('DOM.setFileInputFiles', { nodeId: q.nodeId, files: [coverFile] });
+  };
+  const coverState = async () => JSON.parse(await cdp.eval(`(() => {
+    const d = JSON.parse(localStorage.getItem('other-side-wuxi-v1') || '{}');
+    const c = d.covers || {}; const ks = Object.keys(c);
+    const im = document.querySelector('#intro-cover img');
+    return JSON.stringify({
+      keys: ks, kb: ks.map(k => Math.round(c[k].length / 1024)),
+      fps: (d.footprints || []).length,
+      toast: (document.getElementById('toast') || {}).textContent || '',
+      imgData: !!im && im.src.startsWith('data:'),
+      imgW: im ? im.naturalWidth : 0,
+    });
+  })()`));
+
+  // ① 正常上传：体积要压下来
+  await cdp.navigate(spotUrl('c1'));
+  await cdp.eval("localStorage.clear()");
+  await cdp.navigate(spotUrl('c1b'));
+  await uploadCover();
+  const cov1 = await waitFor(async () => {
+    const s = await coverState();
+    return s.keys.length === 1 && s.imgData ? s : null;
+  }, 15000);
+  const covKB = cov1 ? Math.max(...cov1.kb) : 0;
+  check('自选封面会压到 200KB 以内再入库',
+    !!cov1 && covKB > 0 && covKB <= 200 && cov1.imgW >= 600,
+    cov1 ? `${covKB}KB / ${cov1.imgW}px（原参数 645KB / 1400px）` : '封面没存进去');
+
+  // ② 存储接近写满：只淘汰最旧的一张，足迹必须还在
+  await cdp.eval(`(() => {
+    const K = 'other-side-wuxi-v1';
+    localStorage.clear();
+    const big = 'data:image/jpeg;base64,' + 'A'.repeat(600000);
+    localStorage.setItem(K, JSON.stringify({
+      user: { name: '测试员' }, visits: {},
+      footprints: [{ id: 'fp-old', spot: 'x', place: '某处', ts: 1 }],
+      covers: { old1: big, old2: big, old3: big }, coverOrder: ['old1', 'old2', 'old3'],
+      fortunes: {}, lastTheme: 'auto',
+    }));
+    // 一小块一小块填到真写不进去为止：固定 40 块会随浏览器配额变化而填不满，
+    // 那样"写满"这个前提根本没成立，断言就成了空转。
+    for (let i = 0; ; i++) {
+      try { localStorage.setItem('junk' + i, 'B'.repeat(50000)); } catch (e) { break; }
+    }
+  })()`);
+  await cdp.navigate(spotUrl('c2'));
+  await uploadCover();
+  const cov2 = await waitFor(async () => {
+    const s = await coverState();
+    return s.toast ? s : null;
+  }, 15000);
+  check('存储写满时先淘汰最旧的封面，足迹一条不少',
+    !!cov2 && cov2.fps === 1 && !cov2.keys.includes('old1') && cov2.keys.length === 3,
+    cov2 ? `封面 ${cov2.keys.join('/')}，${cov2.kb.join('/')}KB，足迹 ${cov2.fps} 条` : '没等到结果');
+  check('淘汰了旧封面时提示要说清楚',
+    !!cov2 && /清掉了\s*\d+\s*张最旧的封面/.test(cov2.toast),
+    cov2 ? '提示="' + cov2.toast + '"' : '');
+
+  // ③ 完全写满且没有封面可淘汰：如实失败，不能假装存上了
+  await cdp.eval(`(() => {
+    const K = 'other-side-wuxi-v1';
+    localStorage.clear();
+    localStorage.setItem(K, JSON.stringify({
+      user: { name: '测试员' }, visits: {},
+      footprints: [{ id: 'fp-a', spot: 'x', place: '某处', ts: 1 }],
+      covers: {}, coverOrder: [], fortunes: {}, lastTheme: 'auto',
+    }));
+    for (let i = 0; ; i++) {
+      try { localStorage.setItem('junk' + i, 'C'.repeat(50000)); } catch (e) { break; }
+    }
+  })()`);
+  await cdp.navigate(spotUrl('c3'));
+  await uploadCover();
+  const cov3 = await waitFor(async () => {
+    const s = await coverState();
+    return /存储已满/.test(s.toast) ? s : null;
+  }, 15000);
+  check('实在写不进时如实报错，不谎称已换封面',
+    !!cov3 && cov3.keys.length === 0 && cov3.imgData === false,
+    cov3 ? `提示="${cov3.toast}"，封面 ${cov3.keys.length} 张，页面图=${cov3.imgData ? '内存态' : '站点原图'}` : '没等到提示');
+  try { unlinkSync(coverFile); } catch (e) { /* 临时文件删不掉不影响结论 */ }
+  await cdp.eval("localStorage.clear()");
 
   // 16) 小屏详情页操作区：sticky 底栏的高度是永久占掉的正文高度
   //     原来 4 个次级按钮带文字要 313px，375 的可用宽度只有 287px → 折成两排，
