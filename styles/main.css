@@ -752,6 +752,7 @@ button:focus-visible,a[href]:focus-visible,[role="button"]:focus-visible{
 
 /* 详情页「上一处 / 下一处」：跟在操作区左侧，和「看视频」同排 */
 #intro-prev,#intro-next{font-size:12px;letter-spacing:1px;padding:9px 12px}
+.intro-step .ico{margin-right:4px}
 @media (max-width:520px){
   #intro-prev,#intro-next{padding:9px 10px;font-size:11px}
 }
@@ -762,15 +763,37 @@ button:focus-visible,a[href]:focus-visible,[role="button"]:focus-visible{
 /* ═══ 小屏详情页操作区 ═══
    375px 下 6 个按钮挤在一行：左侧换行成 3 排，右侧「进入 3D 漫游」
    被压成一条竖排文字，而且整块 sticky 底栏高达 180px，把正文盖住了。
-   小屏改成上下两段：左边按钮横排换行，主按钮独占一整行。 */
+   小屏改成上下两段：左边按钮横排（不换行，见下面的 ≤420 档），主按钮独占一整行。
+   这块是 position:sticky，高度 = 永久占掉的正文可视高度，一行的代价很实在：
+   375×667 上是 153px（22.9%）。 */
 @media (max-width:560px){
   .intro-card .intro-actions{
-    flex-direction:column;align-items:stretch;gap:10px;
-    padding:12px 18px 16px;margin:0 -18px -22px;
+    flex-direction:column;align-items:stretch;gap:8px;
+    padding:10px 18px 12px;margin:0 -18px -22px;
   }
-  .intro-act-left{gap:8px}
+  .intro-act-left{gap:8px;flex-wrap:nowrap}
   .intro-card .intro-actions .btn-gold{
-    width:100%;text-align:center;padding:11px 12px;letter-spacing:1px;
+    width:100%;text-align:center;padding:10px 12px;letter-spacing:1px;
   }
   #intro-prev,#intro-next,#intro-video,#intro-pick{font-size:11px;padding:8px 10px;letter-spacing:0}
+}
+
+/* ≤420px：「上一处 / 下一处」收成箭头。
+   四个次级按钮带文字要 313px（401 的可用宽度只有 311，差 3px 就折行）；
+   收成 34px 的箭头后只要 224px，320 也能一行放下。
+   文字留在 DOM 里（.lbl 只做视觉隐藏），aria-label 由 app.js 写成
+   「上一处：虎丘」这种带景点名的形式，读屏信息一点没少，
+   只是不再用一整行去换这两个词。 */
+@media (max-width:420px){
+  .intro-act-left{gap:5px}
+  .intro-step{
+    width:34px;padding:8px 0;
+    display:inline-flex;align-items:center;justify-content:center;
+  }
+  /* display 一旦写死就会盖掉 UA 的 [hidden]{display:none}，
+     同城只剩一处景点时这两个按钮本该整颗不出现（现在是两个空箭头）。 */
+  .intro-step[hidden]{display:none}
+  .intro-step .ico{margin-right:0}
+  .intro-step .lbl{display:none}
+  #intro-video,#intro-pick{padding:8px 8px}
 }

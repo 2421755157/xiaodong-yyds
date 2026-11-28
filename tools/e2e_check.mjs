@@ -2249,6 +2249,69 @@ function check(name, ok, detail = '') {
     !!phInfo && phInfo.zoom && phInfo.tab === null && phInfo.aria.startsWith('暂无更多实景图'),
     phInfo ? 'no-zoom=' + phInfo.zoom + ' tabindex=' + phInfo.tab + ' aria=' + phInfo.aria : '');
 
+  // 16) 小屏详情页操作区：sticky 底栏的高度是永久占掉的正文高度
+  //     原来 4 个次级按钮带文字要 313px，375 的可用宽度只有 287px → 折成两排，
+  //     375×667 上底栏 153px（22.9%），320×568 上 153px（26.9%）。
+  //     现在 ≤420 把「上一处 / 下一处」收成 34px 箭头（文字留在 DOM，aria-label 由
+  //     app.js 写成「上一处：虎丘」），一行放得下，底栏 102px。
+  //     断言两条：真的少了高度、真的是一行且没横向溢出（挤出去会被 overflow-x
+  //     裁掉半个字，看截图才知道，所以必须量）。
+  const mobile = async (w, h) => {
+    await cdp.send('Emulation.setDeviceMetricsOverride',
+      { width: w, height: h, deviceScaleFactor: 2, mobile: true });
+    await cdp.navigate(BASE + '?narrow=' + w + '#/' + enc('江苏') + '/' + enc('苏州') + '/' + enc('拙政园'));
+    await waitFor(() => cdp.eval("!document.getElementById('intro-next').hidden"), 12000);
+    await sleep(300);
+    const raw = await cdp.eval(`(() => {
+      const bar = document.querySelector('.intro-card .intro-actions');
+      const left = document.querySelector('.intro-act-left');
+      const kids = [...left.children].filter(b => b.offsetWidth);
+      const box = left.getBoundingClientRect();
+      const btn = document.getElementById('intro-next');
+      return JSON.stringify({
+        h: Math.round(bar.getBoundingClientRect().height),
+        pct: +(bar.getBoundingClientRect().height / innerHeight * 100).toFixed(1),
+        rows: new Set(kids.map(b => Math.round(b.getBoundingClientRect().y))).size,
+        over: +(Math.max(...kids.map(b => b.getBoundingClientRect().right)) - box.right).toFixed(1),
+        clipped: kids.filter(b => b.scrollWidth > b.clientWidth + 1).length,
+        label: getComputedStyle(document.querySelector('#intro-prev .lbl')).display,
+        name: btn.getAttribute('aria-label') || '',
+        w: Math.round(btn.getBoundingClientRect().width),
+        pageOverflowX: document.documentElement.scrollWidth > innerWidth,
+      });
+    })()`);
+    return JSON.parse(raw);
+  };
+  const m375 = await mobile(375, 667);
+  check('375 下详情操作区压到一行且不超 110px',
+    m375.h <= 110 && m375.rows === 1 && m375.pageOverflowX === false,
+    `${m375.h}px / ${m375.pct}%（原 153px / 22.9%），${m375.rows} 行`);
+  check('375 下按钮没有横向溢出或裁字',
+    m375.over <= 0.5 && m375.clipped === 0,
+    `溢出 ${m375.over}px，裁字 ${m375.clipped} 个`);
+  check('窄屏箭头只留图形，可访问名仍带景点名',
+    m375.label === 'none' && m375.w <= 40 && /上一处|下一处/.test(m375.name),
+    `标签=${m375.label} 按钮宽=${m375.w}px aria="${m375.name}"`);
+  // 320 是最窄的还要认真支持的宽度（iPhone SE 一代 / 安卓小屏）
+  const m320 = await mobile(320, 568);
+  check('320 下同样一行放得下（不靠换行兜底）',
+    m320.rows === 1 && m320.over <= 0.5 && m320.h <= 110 && m320.pageOverflowX === false,
+    `${m320.h}px / ${m320.pct}%（原 153px / 26.9%），${m320.rows} 行，溢出 ${m320.over}px`);
+  // 反过来守一刀：宽一点的手机（421~560）不该跟着藏字，那是白白丢信息
+  const m540 = await mobile(540, 800);
+  check('421~560 仍显示「上一处/下一处」文字',
+    m540.label === 'inline' && m540.rows === 1,
+    `标签=${m540.label} ${m540.h}px，${m540.rows} 行`);
+  // 34px 的箭头还得真能点：命中区缩了，别把点击也弄丢
+  const mBefore = await cdp.eval("document.getElementById('intro-name').textContent");
+  await cdp.eval("document.getElementById('intro-next').click()");
+  const mAfter = await waitFor(async () => {
+    const n = await cdp.eval("document.getElementById('intro-name').textContent");
+    return n && n !== mBefore ? n : 0;
+  }, 6000);
+  check('窄屏箭头点击仍能翻到下一处', !!mAfter, mBefore + ' → ' + (mAfter || '(未变)'));
+  await cdp.send('Emulation.clearDeviceMetricsOverride');
+
   console.log('\n通过 ' + results.filter(r => r.ok).length + '/' + results.length);
   const failed = results.filter(r => !r.ok);
   if (failed.length) {
